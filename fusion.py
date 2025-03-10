@@ -373,7 +373,7 @@ def train(model_cls: str, latent_dim: int, textual_path: Path, relational_path: 
         textual_path=textual_path,
         relational_path=relational_path,
         latent_dim=latent_dim,
-        max_epochs=10,
+        max_epochs=50,
         lr=0.01,
         seed=seed,
         prefix=f"{tname}_{rname}/{tdim}_{rdim}",
