@@ -296,12 +296,10 @@ class SAE(nn.Module):
         return y, z
 
 
-
-
 class Config(AbstractConfig):
     def __init__(
         self,
-        model_cls,
+        model_cls: str,
         textual_path: Path,
         relational_path: Path,
         latent_dim: int,
@@ -338,7 +336,8 @@ class Driver(AbstractDriver):
         return datamodule
 
     def setup_model(self):
-        return self.config.model_cls(
+        model_cls = eval(self.config.model_cls)
+        return model_cls(
             textual_dim=self.textual_dim,
             relational_dim=self.relational_dim,
             latent_dim=self.config.latent_dim,
@@ -355,19 +354,33 @@ class Driver(AbstractDriver):
         )
 
     def get_node_embeddings(self):
-        return self.model.cuda().encode(
-            self.datamodule.features[0].cuda(), self.datamodule.features[1].cuda()
+        return (
+            self.model.cuda()
+            .encode(
+                self.datamodule.features[0].cuda(), self.datamodule.features[1].cuda()
+            )
+            .type(torch.float16)
         )
+
+
 from itertools import product
 import constants
 from tqdm import tqdm
+
+
 @app.command()
-def train(model_cls: str, latent_dim: int, textual_path: Path, relational_path: Path, seed: int):
-    model_cls = eval(model_cls)
-    
+def train(
+    model_cls: str,
+    latent_dim: int,
+    textual_path: Path,
+    relational_path: Path,
+    seed: int,
+):
+    # model_cls = eval(model_cls)
+
     tdim, tname = textual_path.stem, textual_path.parent.stem
     rdim, rname = relational_path.stem, relational_path.parent.stem
-    
+
     config = Config(
         model_cls=model_cls,
         textual_path=textual_path,
@@ -377,10 +390,11 @@ def train(model_cls: str, latent_dim: int, textual_path: Path, relational_path: 
         lr=0.01,
         seed=seed,
         prefix=f"{tname}_{rname}/{tdim}_{rdim}",
-        kwargs={}
+        kwargs={},
     )
     driver = Driver(config)
     driver.run()
+
 
 @app.command(name="run-experiments")
 def run_experiments():
@@ -397,8 +411,16 @@ def run_experiments():
     input_features = list(product(textual_embeddings, relational_embeddings))
 
     # Use itertools.product to generate the grid search combinations
-    for latent_dim, model, (t, r), seed in tqdm(list(product(latent_dims, model_classes, input_features, seeds))):
-        train(model_cls=model.__name__, latent_dim=latent_dim, textual_path=t, relational_path=r, seed=seed)
+    for latent_dim, model, (t, r), seed in tqdm(
+        list(product(latent_dims, model_classes, input_features, seeds))
+    ):
+        train(
+            model_cls=model.__name__,
+            latent_dim=latent_dim,
+            textual_path=t,
+            relational_path=r,
+            seed=seed,
+        )
 
 
 if __name__ == "__main__":
