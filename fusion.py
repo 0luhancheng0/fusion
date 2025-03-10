@@ -11,6 +11,10 @@ from base import AbstractConfig, AbstractDriver
 from dataloading import FeatureModule
 from callbacks import LoggingEmbeddingCallback, LoggingGateScores
 from typing import Dict
+from typer import Typer
+
+app = Typer()
+
 NUM_CLASSES = 40
 
 
@@ -354,5 +358,48 @@ class Driver(AbstractDriver):
         return self.model.cuda().encode(
             self.datamodule.features[0].cuda(), self.datamodule.features[1].cuda()
         )
+from itertools import product
+import constants
+from tqdm import tqdm
+@app.command()
+def train(model_cls: str, latent_dim: int, textual_path: Path, relational_path: Path, seed: int):
+    model_cls = eval(model_cls)
+    
+    tdim, tname = textual_path.stem, textual_path.parent.stem
+    rdim, rname = relational_path.stem, relational_path.parent.stem
+    
+    config = Config(
+        model_cls=model_cls,
+        textual_path=textual_path,
+        relational_path=relational_path,
+        latent_dim=latent_dim,
+        max_epochs=10,
+        lr=0.01,
+        seed=seed,
+        prefix=f"{tname}_{rname}/{tdim}_{rdim}",
+        kwargs={}
+    )
+    driver = Driver(config)
+    driver.run()
+
+@app.command(name="run-experiments")
+def run_experiments():
+    textual = constants.SAVED_EMBEDDINGS_DIR / "textual"
+    relational = constants.SAVED_EMBEDDINGS_DIR / "relational"
+
+    textual_embeddings = list(textual.glob("**/*.pt"))
+    relational_embeddings = list(relational.glob("**/*.pt"))
+
+    # Define search space parameters
+    latent_dims = [16, 32, 64, 128]
+    model_classes = [TransformerFusion, LowRankFusion, GatedFusion, EarlyFusion]
+    seeds = range(5)
+    input_features = list(product(textual_embeddings, relational_embeddings))
+
+    # Use itertools.product to generate the grid search combinations
+    for latent_dim, model, (t, r), seed in tqdm(list(product(latent_dims, model_classes, input_features, seeds))):
+        train(model_cls=model.__name__, latent_dim=latent_dim, textual_path=t, relational_path=r, seed=seed)
 
 
+if __name__ == "__main__":
+    app()
