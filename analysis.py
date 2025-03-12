@@ -136,18 +136,19 @@ class Node2VecAnalyzer:
         
         return fig
 
-# Example usage
-# if __name__ == "__main__":
-#     analyzer = Node2VecAnalyzer(dpi=300)
-#     print(analyzer.get_aggregated_results())
-    
-#     # Create and save plots
-#     fig1 = analyzer.create_performance_plot(metric='acc/test')
-#     fig1.savefig("/home/lcheng/oz318/fusion/logs/figures/node2vec_test_accuracy.png")
-    
-#     fig2 = analyzer.create_heatmap()
-#     fig2.savefig("/home/lcheng/oz318/fusion/logs/figures/node2vec_metrics_heatmap.png")
-    
-#     fig3 = analyzer.visualize_seed_variation()
-#     fig3.savefig("/home/lcheng/oz318/fusion/logs/figures/node2vec_seed_variation.png")
 
+import pandas as pd
+import torch
+
+def load_embeddings(root):
+    embeddings_path  = list(root.glob("**/*.pt"))
+    embeddings = {(i.parent.name, i.parent.parent.name): i for i in embeddings_path}
+    return embeddings
+# em = torch.load(embeddings[('0.01', '32')], map_location='cpu', weights_only=False)
+node2vec = load_embeddings(Path("/Users/chengluhan/Downloads/Node2Vec"))
+raw = torch.load(node2vec[('0', '32')], map_location='cpu', weights_only=False)
+embeddings = raw['embeddings']
+config = raw['metadata']['config']
+results = raw['metadata']['results']
+
+embeddings.shape

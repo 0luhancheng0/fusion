@@ -186,47 +186,6 @@ class GatedFusion(FusionClassification):
         return scores
 
 
-from typing import Optional
-
-
-class SelfAttentionOnlyDecoderLayer(nn.TransformerDecoderLayer):
-    """TransformerDecoderLayer that uses only self-attention (no cross-attention)"""
-
-    def forward(
-        self,
-        tgt: Tensor,
-        memory: Optional[Tensor] = None,  # This parameter is kept for API compatibility
-        tgt_mask: Optional[Tensor] = None,
-        memory_mask: Optional[Tensor] = None,  # Not used
-        tgt_key_padding_mask: Optional[Tensor] = None,
-        memory_key_padding_mask: Optional[Tensor] = None,  # Not used
-        tgt_is_causal: bool = False,
-        memory_is_causal: bool = False,  # Not used
-    ) -> Tensor:
-        """Pass the input through the decoder layer, using only self-attention."""
-
-        x = tgt
-        if self.norm_first:
-            # Only use self-attention and feed-forward blocks
-            x = x + self._sa_block(
-                self.norm1(x), tgt_mask, tgt_key_padding_mask, tgt_is_causal
-            )
-            # Skip the multi-head attention block
-            x = x + self._ff_block(
-                self.norm3(x)
-            )  # Using norm3 directly (skipping norm2)
-        else:
-            # Only use self-attention and feed-forward blocks
-            x = self.norm1(
-                x + self._sa_block(x, tgt_mask, tgt_key_padding_mask, tgt_is_causal)
-            )
-            # Skip the multi-head attention block
-            x = self.norm3(
-                x + self._ff_block(x)
-            )  # Using norm3 directly (skipping norm2)
-
-        return x
-
 
 class TransformerFusion(FusionClassification):
     def __init__(
@@ -237,27 +196,26 @@ class TransformerFusion(FusionClassification):
         lr,
         num_layers=3,
         weight_decay=1e-4,
-        num_heads=4,
+        nhead=4,
         output_modality: Literal["textual", "relational", "both"] = "both",
     ):
         super().__init__(textual_dim, relational_dim, latent_dim, lr, weight_decay)
         self.save_hyperparameters()
         self.output_modality = output_modality
-        self.decoder_layer = SelfAttentionOnlyDecoderLayer(
+        decoder_layer = nn.TransformerDecoderLayer(
             d_model=latent_dim,
-            nhead=num_heads,
-            dim_feedforward=latent_dim * 4,
-            dropout=0.0,
+            nhead=nhead,
+            dim_feedforward=2 * latent_dim,
+            dropout=0.1,
             activation="relu",
-            norm_first=True,
         )
         if output_modality != "relational":
             self.textual_decoder = nn.TransformerDecoder(
-                self.decoder_layer, num_layers=num_layers
+                decoder_layer, num_layers=num_layers
             )
         if output_modality != "textual":
             self.relational_decoder = nn.TransformerDecoder(
-                self.decoder_layer, num_layers=num_layers
+                decoder_layer, num_layers=num_layers
             )
         if output_modality == "both":
             self.fusion_layer = nn.Linear(2 * latent_dim, latent_dim)
