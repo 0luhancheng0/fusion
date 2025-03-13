@@ -3,15 +3,18 @@ from pathlib import Path
 from pprint import pformat
 import torch
 import lightning as L
+from torchinfo import summary
 from lightning.pytorch.loggers import TensorBoardLogger
 from lightning_fabric.utilities.seed import seed_everything
 import constants
 from lightning.pytorch.callbacks import ModelCheckpoint
 from dataloading import OGBNArxivDataset
+import json
 
 
 class AbstractConfig(ABC):
     """Abstract base class for all configuration objects."""
+
     def __init__(self, seed, prefix):
         self.seed = seed
         self.prefix = prefix
@@ -24,11 +27,29 @@ class AbstractConfig(ABC):
         """Return a string representation of the configuration."""
         return self.__str__()
 
+    def to_json(self, file_path=None):
+        """Serialize the config to JSON."""
+        json_dict = self.__dict__
+        if file_path:
+            with open(file_path, "w") as f:
+                json.dump(json_dict, f, indent=4)
+        return json.dumps(json_dict, indent=4)
+
+    @classmethod
+    def from_json(cls, json_str=None, file_path=None):
+        """Create a config instance from a JSON string or file."""
+        if file_path:
+            with open(file_path, "r") as f:
+                config_dict = json.load(f)
+        else:
+            config_dict = json.loads(json_str)
+        return cls.from_dict(config_dict)
+
 
 class AbstractDriver(ABC):
     """Abstract base class for all model drivers."""
 
-    def __init__(self, config):
+    def __init__(self, config: AbstractConfig):
         """Initialize the driver with a configuration."""
         self.config = config
         self.setup()
@@ -58,22 +79,24 @@ class AbstractDriver(ABC):
         return TensorBoardLogger(
             save_dir=constants.LOG_DIR,
             name=f"{self.model.__class__.__name__}/{self.config.prefix}",
-            version=str(self.config.seed)
+            version=str(self.config.seed),
         )
 
     def save_embeddings(self):
-
-        embeddings = {
-            "embeddings": self.get_node_embeddings(),
-            "metadata": {
-                "config": self.config.__dict__,
-                "results": self.evaluate(),
-            },
-        }
         saved_path = Path(self.logdir) / "embeddings.pt"
-
-        torch.save(embeddings, saved_path)
+        torch.save(self.get_node_embeddings(), saved_path)
         return saved_path
+
+    def save_config(self):
+        """Save the configuration to a file."""
+        config_file = Path(self.logdir) / "config.json"
+        self.config.to_json(config_file)
+
+    def save_results(self):
+        """Save the results to a file."""
+        results_file = Path(self.logdir) / "results.json"
+        with open(results_file, "w") as f:
+            json.dump(self.results, f, indent=4)
 
     def setup_trainer(self, callbacks=[], monitor="loss/val", mode="min"):
         """Set up the Lightning trainer."""
@@ -126,6 +149,9 @@ class AbstractDriver(ABC):
     def setup_evaluator(self):
         return OGBNArxivDataset.evaluator()
 
+    def log_model_summary(self):
+        self.trainer.logger.experiment.add_text("summary", str(summary(self.model)))
+        
     @property
     def best_model_path(self):
         return self.trainer.checkpoint_callback.best_model_path
@@ -146,4 +172,8 @@ class AbstractDriver(ABC):
         self.fit()
         self.save_hparams()
         self.save_embeddings()
-        return self.results
+        self.save_config()
+        self.evaluate()
+        self.save_results()
+        self.log_model_summary()
+        return self

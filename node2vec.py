@@ -12,15 +12,13 @@ from dataloading import OGBNArxivDataset
 import dgl.transforms as T
 import dgl
 from torchinfo import summary
-from lightning_fabric.utilities.seed import seed_everything
-import constants
-from lightning.pytorch.loggers import TensorBoardLogger
-from lightning.pytorch.callbacks import ModelCheckpoint
 from torchmetrics.functional.classification import auroc, roc, precision_recall_curve
 
 from base import AbstractConfig, AbstractDriver
 from typer import Typer
+
 app = Typer(help="Node2Vec training script")
+
 
 class Node2VecLightning(L.LightningModule):
     def __init__(
@@ -79,9 +77,7 @@ class Node2VecLightning(L.LightningModule):
     def validation_step(self, batch, _):
         self.log(
             "acc/val",
-            self.evaluator.evaluate_arxiv_embeddings(
-                self.get_node_embeddings(), "val"
-            ),
+            self.evaluator.evaluate_arxiv_embeddings(self.get_node_embeddings(), "val"),
         )
 
     def test_step(self, batch, _):
@@ -129,7 +125,7 @@ class Config(AbstractConfig):
         q,
         sparse,
         seed,
-        prefix
+        prefix,
     ):
         super().__init__(seed, prefix)
         self.max_epochs = max_epochs
@@ -144,7 +140,6 @@ class Config(AbstractConfig):
         self.p = p
         self.q = q
         self.sparse = sparse
-
 
 
 class Driver(AbstractDriver):
@@ -175,15 +170,17 @@ class Driver(AbstractDriver):
     def test(self):
         return self.trainer.test(ckpt_path=self.best_model_path)[0]
 
-
     def get_node_embeddings(self):
         return self.best_model().get_node_embeddings()
+
     def setup_trainer(self, monitor="acc/val", mode="max"):
         return super().setup_trainer(monitor=monitor, mode=mode)
+
     def setup_datamodule(self):
         self.dataset = OGBNArxivDataset()
         self.graph = self.dataset.graph
-    
+
+
 @app.command(name="train")
 def train(
     max_epochs: int = 5,
@@ -201,7 +198,7 @@ def train(
     seed: int = 0,
 ):
     """Train a Node2Vec model with the specified parameters and print the results."""
-    
+
     # Create config with CLI arguments
     config = Config(
         max_epochs=max_epochs,
@@ -216,17 +213,21 @@ def train(
         p=p,
         q=q,
         sparse=sparse,
-        seed=seed
+        seed=seed,
+        prefix=str(embedding_dim),
     )
     driver = Driver(config)
     return driver.run()
+
 
 @app.command(name="run-experiments")
 def run_experiments():
     """Run experiments for embedding dimensions [32, 64, 128, 256] and seeds 0-4."""
     for embedding_dim in [32, 64, 128, 256]:
         for seed in range(5):
-            print(f"\n=== Running experiment with embedding_dim={embedding_dim}, seed={seed} ===")
+            print(
+                f"\n=== Running experiment with embedding_dim={embedding_dim}, seed={seed} ==="
+            )
             config = Config(
                 max_epochs=5,
                 batchsize=256,
@@ -244,10 +245,18 @@ def run_experiments():
                 prefix=str(embedding_dim),
             )
             driver = Driver(config)
-            results = driver.run()
-            print(f"Results for embedding_dim={embedding_dim}, seed={seed}:")
-            for metric, value in results.items():
-                print(f"  {metric}: {value}")
-            print("========================================")
-if __name__ == "__main__":
-    app()
+            driver = driver.run()
+
+run_experiments()
+
+# driver = train(max_epochs=1, embedding_dim=32, seed=0)
+
+
+
+
+# if __name__ == "__main__":
+    # app()
+    
+
+
+

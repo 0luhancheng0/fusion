@@ -217,20 +217,22 @@ from pprint import pprint
 def run_experiments():
     for dim in [32, 64, 128, 256]:
         for reg in [0.01, 0.1, 1.0, 10, 100]:
-            config = Config(
-                input_features=f"/fred/oz318/luhanc/fusion/saved_embeddings/ogbn-arxiv/relational/node2vec/{dim}.pt",
-                max_epochs=1,
-                k=8,
-                reg=reg,
-                lr=0.01,
-                weight_decay=5e-4,
-                seed=0,
-                prefix=f"{dim}/{reg}",
-            )
-            driver = Driver(config)
-            driver.run()
-            torch.save(driver.get_node_embeddings(),f"/home/lcheng/oz318/fusion/saved_embeddings/ogbn-arxiv/relational/asgc/{dim}.pt")
-            pprint(f"Results for dim={dim}, reg={reg}:")
-            pprint(driver.results)
-if __name__ == "__main__":
-    app()
+            for k in [1, 2, 4, 8]: 
+                config = Config(
+                    input_features=f"/fred/oz318/luhanc/fusion/saved_embeddings/ogbn-arxiv/relational/node2vec/{dim}.pt",
+                    max_epochs=5,
+                    k=k,
+                    reg=reg,
+                    lr=0.01,
+                    weight_decay=5e-4,
+                    seed=k,
+                    prefix=f"{dim}/{reg}",
+                )
+                driver = Driver(config)
+                driver.run()
+                torch.save(driver.get_node_embeddings(),f"/home/lcheng/oz318/fusion/saved_embeddings/ogbn-arxiv/relational/asgc/{dim}.pt")
+                pprint(f"Results for dim={dim}, reg={reg}:")
+                pprint(driver.results)
+run_experiments()
+# if __name__ == "__main__":
+#     app()

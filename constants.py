@@ -14,3 +14,4 @@ SAVED_EMBEDDINGS_DIR = Path("/home/lcheng/oz318/fusion/saved_embeddings/ogbn-arx
 # DEFAULT_REPEAT = 5
 LOG_DIR = Path("/home/lcheng/oz318/fusion/logs")
 
+FIGURE_PATH = LOG_DIR / "figures"

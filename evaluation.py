@@ -66,8 +66,3 @@ class NodeEmbeddingEvaluator:
         else:
             classifier = LogisticRegression(solver='lbfgs', *args, **kwargs).fit(train_embeddings, train_labels)
         return classifier.score(test_embeddings, test_labels)
-
-
-# embeddings = driver.model.get_node_embeddings().cuda()
-
-
