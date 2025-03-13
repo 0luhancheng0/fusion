@@ -3,151 +3,116 @@ import torch
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
+import constants
 import numpy as np
+import json
+from pathlib import Path
+from abc import ABC, abstractmethod
 
-class Node2VecAnalyzer:
-    def __init__(self, base_path="/home/lcheng/oz318/fusion/logs/Node2VecLightning", dpi=300, cmap="viridis"):
+
+
+class AbstractAnalyzer(ABC):
+    def __init__(self, base_path, dpi=300, cmap="viridis"):
         self.base_path = base_path
-        self.embeddings_paths = list(Path(self.base_path).glob("**/*.pt"))
-        self.df = self._create_results_df()
         self.dpi = dpi
         self.cmap = sns.color_palette(cmap, as_cmap=True)
+        self.config_paths = list(Path(self.base_path).glob("**/config.json"))
+        self.embeddings_paths = [i.parent / "embeddings.pt" for i in self.config_paths]
+        self.results_paths = [i.parent / "results.json" for i in self.config_paths]
+        
+        self.df = self._create_results_df()
     
     def _create_results_df(self):
-        """Load embeddings and create a DataFrame with results."""
-        seeds = [i.parent.stem for i in self.embeddings_paths]
-        dims = [i.parent.parent.stem for i in self.embeddings_paths]
-        embeddings = [torch.load(i, weights_only=False) for i in self.embeddings_paths]
-        results = [i['metadata']['results'] for i in embeddings]
+        """Create a DataFrame from all results files found in the base path."""
+        data = []
+        for config_path, result_path in zip(self.config_paths, self.results_paths):
+            if result_path.exists():                # Load config
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                
+                # Load results
+                with open(result_path, 'r') as f:
+                    results = json.load(f)
+                
+                # Combine config and results
+                entry = {**config, **results}
+                entry['path'] = str(result_path.parent)
+                data.append(entry)
         
-        df = pd.DataFrame(results)
-        df['seeds'] = seeds
-        df['dims'] = dims
-        return df
+        return pd.DataFrame(data) if data else pd.DataFrame()
     
-    def get_aggregated_results(self):
-        """Aggregate results by dimension."""
-        return self.df.groupby(['dims']).agg(
-            {
-                'acc/val': 'mean',
-                'acc/test': 'mean',
-                'lp/auc': 'mean'
-            }
-        )
+    def load_embeddings(self, path_or_index):
+        """Load embeddings from a file path or by index in the DataFrame."""
+        if isinstance(path_or_index, int):
+            path = self.embeddings_paths[path_or_index]
+        else:
+            path = path_or_index
+        
+        return torch.load(path)
     
-    def create_performance_plot(self, metric='acc/test', figsize=(10, 6)):
-        """Create a plot showing performance across different dimensions."""
-        # Aggregate by dimension
-        agg_df = self.df.groupby(['dims'])[metric].agg(['mean', 'std']).reset_index()
-        # Convert dims to int for proper sorting
-        agg_df['dims'] = agg_df['dims'].astype(int)
-        agg_df = agg_df.sort_values('dims')
-        
-        # Create figure
-        fig, ax = plt.subplots(figsize=figsize, dpi=self.dpi)
-        
-        # Plot mean with error bars
-        ax.errorbar(
-            agg_df['dims'], 
-            agg_df['mean'], 
-            yerr=agg_df['std'],
-            marker='o',
-            linestyle='-',
-            capsize=5
-        )
-        
-        # Add labels and title
-        ax.set_xlabel('Embedding Dimension')
-        ax.set_ylabel(f'{metric.replace("/", " ")} Score')
-        ax.set_title(f'Node2Vec Performance by Embedding Dimension')
-        
-        # Add grid
-        ax.grid(True, linestyle='--', alpha=0.7)
-        
-        return fig
+    def load_config(self, path_or_index):
+        """Load config from a file path or by index in the DataFrame."""
+        if isinstance(path_or_index, int):
+            path = self.config_paths[path_or_index]
+        else:
+            path = path_or_index
+            
+        with open(path, 'r') as f:
+            return json.load(f)
     
-    def create_heatmap(self, figsize=(12, 8)):
-        """Create a heatmap showing results for all metrics across dimensions."""
-        # Pivot the data for the heatmap
-        metrics = ['acc/val', 'acc/test', 'lp/auc']
-        agg_results = self.df.groupby(['dims'])[metrics].mean().reset_index()
-        
-        # Convert dims to int and sort
-        agg_results['dims'] = agg_results['dims'].astype(int)
-        agg_results = agg_results.sort_values('dims')
-        
-        # Reshape for heatmap
-        pivot_df = agg_results.melt(
-            id_vars=['dims'],
-            value_vars=metrics,
-            var_name='Metric',
-            value_name='Score'
-        )
-        pivot_df = pivot_df.pivot(index='dims', columns='Metric', values='Score')
-        
-        # Create figure
-        fig, ax = plt.subplots(figsize=figsize, dpi=self.dpi)
-        
-        # Plot heatmap
-        sns.heatmap(
-            pivot_df,
-            annot=True,
-            fmt='.3f',
-            cmap=self.cmap,
-            ax=ax
-        )
-        
-        ax.set_title('Node2Vec Performance by Dimension and Metric')
-        ax.set_ylabel('Embedding Dimension')
-        
-        return fig
+    def load_results(self, path_or_index):
+        """Load results from a file path or by index in the DataFrame."""
+        if isinstance(path_or_index, int):
+            path = self.results_paths[path_or_index]
+        else:
+            path = path_or_index
+            
+        with open(path, 'r') as f:
+            return json.load(f)
     
-    def visualize_seed_variation(self, metric='acc/test', figsize=(10, 6)):
-        """Visualize the variation across different seeds for each dimension."""
-        # Prepare data
-        dims = sorted([int(d) for d in self.df['dims'].unique()])
-        
-        # Create figure
-        fig, ax = plt.subplots(figsize=figsize, dpi=self.dpi)
-        
-        # Create box plot
-        sns.boxplot(
-            x='dims',
-            y=metric,
-            data=self.df,
-            ax=ax
-        )
-        
-        # Add individual points for better visualization
-        sns.stripplot(
-            x='dims',
-            y=metric,
-            data=self.df,
-            color='black',
-            size=4,
-            alpha=0.5,
-            ax=ax
-        )
-        
-        # Add labels and title
-        ax.set_xlabel('Embedding Dimension')
-        ax.set_ylabel(f'{metric.replace("/", " ")} Score')
-        ax.set_title(f'Node2Vec Performance Distribution by Dimension')
-        
-        return fig
+    def get_triplet(self, index):
+        """Get the (embeddings, results, config) triplet by index."""
+        config = self.load_config(index)
+        results = self.load_results(index)
+        embeddings = self.load_embeddings(index)
+        return embeddings, results, config
+    
+    @abstractmethod
+    def analyze(self):
+        """Perform analysis on the loaded data."""
+        pass
+    
+    @abstractmethod
+    def visualize(self):
+        """Create visualizations for the data."""
+        pass
+    
+    def save_figure(self, fig, filename):
+        """Save a matplotlib figure."""
+        path = constants.FIGURE_PATH / f"{filename}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(path, dpi=self.dpi, bbox_inches="tight")
+        plt.close(fig)
+        return path
 
-# Example usage
-# if __name__ == "__main__":
-#     analyzer = Node2VecAnalyzer(dpi=300)
-#     print(analyzer.get_aggregated_results())
-    
-#     # Create and save plots
-#     fig1 = analyzer.create_performance_plot(metric='acc/test')
-#     fig1.savefig("/home/lcheng/oz318/fusion/logs/figures/node2vec_test_accuracy.png")
-    
-#     fig2 = analyzer.create_heatmap()
-#     fig2.savefig("/home/lcheng/oz318/fusion/logs/figures/node2vec_metrics_heatmap.png")
-    
-#     fig3 = analyzer.visualize_seed_variation()
-#     fig3.savefig("/home/lcheng/oz318/fusion/logs/figures/node2vec_seed_variation.png")
 
+class ASGC(AbstractAnalyzer):
+    def __init__(self, dpi=300, cmap="viridis"):
+        super().__init__("/home/lcheng/oz318/fusion/logs/ASGC", dpi, cmap)
+    def analyze(self):
+        pass
+    def visualize(self):
+        ax = sns.heatmap(self.df.groupby(
+            ["k", "reg"]
+        ).agg(
+            {"acc/test": "mean"}
+        ).reset_index().pivot(
+            index="k", columns="reg", values="acc/test"
+        ), cmap=self.cmap, annot=True, fmt=".2f")
+        return ax.get_figure()
+
+asgc_analyzer = ASGC()
+
+fig = asgc_analyzer.visualize()
+
+fig.show()
