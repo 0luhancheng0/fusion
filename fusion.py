@@ -1,6 +1,5 @@
 from abc import ABC
 from pathlib import Path
-from typing import Literal
 import lightning as L
 import torch
 import torchmetrics.functional as F
@@ -16,6 +15,15 @@ from itertools import product
 import constants
 from tqdm import tqdm
 from torchinfo import summary
+
+
+from constants import SAVED_EMBEDDINGS_DIR
+from itertools import product
+import logging
+
+logging.getLogger("lightning").setLevel(logging.ERROR)
+logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.FATAL)
+
 app = Typer()
 
 NUM_CLASSES = 40
@@ -100,6 +108,7 @@ class AdditionFusion(FusionClassification):
 
     def fusion(self, textual, relational):
         return textual + relational
+
 
 class EarlyFusion(FusionClassification):
     def __init__(self, textual_dim, relational_dim, latent_dim, lr, weight_decay=1e-4):
@@ -196,7 +205,6 @@ class GatedFusion(FusionClassification):
         return scores
 
 
-
 class TransformerFusion(FusionClassification):
     def __init__(
         self,
@@ -207,7 +215,7 @@ class TransformerFusion(FusionClassification):
         num_layers=3,
         weight_decay=1e-4,
         nhead=4,
-        output_modality = "both",
+        output_modality="both",
     ):
         super().__init__(textual_dim, relational_dim, latent_dim, lr, weight_decay)
         self.save_hyperparameters()
@@ -218,7 +226,7 @@ class TransformerFusion(FusionClassification):
             dim_feedforward=2 * latent_dim,
             dropout=0.1,
             activation="relu",
-            norm_first=True
+            norm_first=True,
         )
         if output_modality != "relational":
             self.textual_decoder = nn.TransformerDecoder(
@@ -241,28 +249,6 @@ class TransformerFusion(FusionClassification):
         relational = self.relational_decoder(relational, textual)
 
         return self.fusion_layer(torch.hstack((textual, relational)))
-
-
-class SAE(nn.Module):
-    def __init__(self, d_in, d_latent, d_out):
-        super().__init__()
-        self.W_enc = nn.Parameter(nn.init.kaiming_normal_(torch.randn(d_in, d_latent)))
-        self._W_dec = nn.Parameter(
-            nn.init.kaiming_normal_(torch.randn(d_latent, d_out))
-        )
-        self.b_enc = nn.Parameter(torch.zeros(d_latent))
-        self.b_dec = nn.Parameter(torch.zeros(d_out))
-
-    def W_dec(self):
-        return self._W_dec / (self._W_dec.norm(dim=-1, keepdim=True) + 1e-8)
-
-    def forward(self, x, return_z=False):
-        x = einsum(self.W_enc, x, "d_in d_latent, b d_in -> b d_latent") + self.b_enc
-        z = torch.nn.functional.relu(x)
-        y = einsum(self.W_dec, z, "d_latent d_out, b d_latent -> b d_out") + self.b_dec
-        if not return_z:
-            return y
-        return y, z
 
 
 class Config(AbstractConfig):
@@ -340,7 +326,7 @@ def run(
     seed: int,
     max_epochs: int,
     kwargs: Dict,
-    prefix: str
+    prefix: str,
 ):
     # tdim, tname = textual_path.stem, textual_path.parent.stem
     # rdim, rname = relational_path.stem, relational_path.parent.stem
@@ -356,216 +342,251 @@ def run(
         kwargs=kwargs,
     )
     driver = Driver(config)
+    if (driver.logdir / 'results.json').exists():
+        print(f"Logdir {driver.logdir} already exists. Skipping.")
+        return driver
     return driver.run()
 
-@app.command()
-def early_fusion(
-    latent_dim: int,
-    textual_path: Path,
-    relational_path: Path,
-    seed: int,
-    max_epochs = 5
-):
-    tdim, tname = textual_path.stem, textual_path.parent.stem
-    rdim, rname = relational_path.stem, relational_path.parent.stem
-    prefix = f"{tname}_{rname}/{tdim}_{rdim}"
-    return run(
-        model_cls="EarlyFusion",
-        textual_path=textual_path,
-        relational_path=relational_path,
-        latent_dim=latent_dim,
-        seed=seed,
-        max_epochs=max_epochs,
-        kwargs={},
-        prefix=prefix,
-    )
 
-
-@app.command()
-def addition_fusion(
-    latent_dim: int,
-    textual_path: Path,
-    relational_path: Path,
-    seed: int,
-    max_epochs = 5
-):
-    tdim, tname = textual_path.stem, textual_path.parent.stem
-    rdim, rname = relational_path.stem, relational_path.parent.stem
-    prefix = f"{tname}_{rname}/{tdim}_{rdim}"
-    return run(
-        model_cls="AdditionFusion",
-        textual_path=textual_path,
-        relational_path=relational_path,
-        latent_dim=latent_dim,
-        seed=seed,
-        max_epochs=max_epochs,
-        kwargs={},
-        prefix=prefix,
-    )
-
-@app.command()
-def gated_fusion(
-    latent_dim: int,
-    textual_path: Path,
-    relational_path: Path,
-    seed: int,
-    max_epochs = 5,
-):
-    tdim, tname = textual_path.stem, textual_path.parent.stem
-    rdim, rname = relational_path.stem, relational_path.parent.stem
-    prefix = f"{tname}_{rname}/{tdim}_{rdim}"
-    return run(
-        model_cls="GatedFusion",
-        textual_path=textual_path,
-        relational_path=relational_path,
-        latent_dim=latent_dim,
-        seed=seed,
-        max_epochs=max_epochs,
-        kwargs={},
-        prefix=prefix,
-    )
-
-@app.command()
-def lowrank_fusion(
-    latent_dim: int,
-    textual_path: Path,
-    relational_path: Path,
-    seed: int,
-    max_epochs = 5,
-    rank: int = 4,
-):
-    tdim, tname = textual_path.stem, textual_path.parent.stem
-    rdim, rname = relational_path.stem, relational_path.parent.stem
-    prefix = f"{tname}_{rname}/{tdim}_{rdim}/{rank}"
-    return run(
-        model_cls="LowRankFusion",
-        textual_path=textual_path,
-        relational_path=relational_path,
-        latent_dim=latent_dim,
-        seed=seed,
-        max_epochs=max_epochs,
-        kwargs={"rank": rank},
-        prefix=prefix,
-    )
-
-
-
-
-
-@app.command()
-def transformer_fusion(
-    latent_dim: int,
-    textual_path: Path,
-    relational_path: Path,
-    seed: int,
-    max_epochs = 5,
-    num_layers: int = 1,
-    nhead: int = 1,
-    output_modality: Literal["textual", "relational", "both"] = "both",
-):
-    tdim, tname = textual_path.stem, textual_path.parent.stem
-    rdim, rname = relational_path.stem, relational_path.parent.stem
-    prefix = f"{tname}_{rname}/{tdim}_{rdim}/{num_layers}_{nhead}/{output_modality}"
-    return run(
-        model_cls="GatedFusion",
-        textual_path=textual_path,
-        relational_path=relational_path,
-        latent_dim=latent_dim,
-        seed=seed,
-        max_epochs=max_epochs,
-        kwargs={
-            "num_layers": num_layers,
-            "nhead": nhead,
-            "output_modality": output_modality,
-        },
-        prefix=prefix,
-    )
-
-
-
-def run_experiments():
-    textual = constants.SAVED_EMBEDDINGS_DIR / "textual"
-    relational = constants.SAVED_EMBEDDINGS_DIR / "relational"
-
-    textual_embeddings = list(textual.glob("**/*.pt"))
-    relational_embeddings = list(relational.glob("**/*.pt"))
-
-    # Define search space parameters
-    latent_dims = [16, 32, 64, 128]
-    model_classes = [TransformerFusion, LowRankFusion, GatedFusion, EarlyFusion]
-    seeds = range(5)
-    input_features = list(product(textual_embeddings, relational_embeddings))
-
-    # Use itertools.product to generate the grid search combinations
-    for latent_dim, model, (t, r), seed in tqdm(
-        list(product(latent_dims, model_classes, input_features, seeds))
+class SingleRun:
+    @app.command()
+    def early_fusion(
+        latent_dim: int,
+        textual_path: Path,
+        relational_path: Path,
+        seed: int,
+        max_epochs=5,
     ):
-        train(
-            model_cls=model.__name__,
+        tdim, tname = textual_path.stem, textual_path.parent.stem
+        rdim, rname = relational_path.stem, relational_path.parent.stem
+        prefix = f"{tname}_{rname}/{tdim}_{rdim}"
+        return run(
+            model_cls="EarlyFusion",
+            textual_path=textual_path,
+            relational_path=relational_path,
             latent_dim=latent_dim,
-            textual_path=t,
-            relational_path=r,
             seed=seed,
+            max_epochs=max_epochs,
+            kwargs={},
+            prefix=prefix,
         )
 
-def run_transformer_fusion_experiments():
-    textual = constants.SAVED_EMBEDDINGS_DIR / "textual"
-    relational = constants.SAVED_EMBEDDINGS_DIR / "relational"
-
-    textual_embeddings = list(textual.glob("**/*.pt"))
-    relational_embeddings = list(relational.glob("**/*.pt"))
-
-    # Define search space parameters
-    latent_dims = [16, 32, 64, 128]
-    seeds = range(5)
-    input_features = list(product(textual_embeddings, relational_embeddings))
-    output_modalities = ["textual", "relational", "both"]
-    num_layers = [1, 3, 6, 12]
-    nheads = [4, 8, 12]
-    
-
-    # Use itertools.product to generate the grid search combinations
-    for latent_dim, (t, r), seed, nlayer, output_modality, nhead in tqdm(
-        list(product(latent_dims, input_features, seeds, num_layers, output_modalities, nheads))
+    @app.command()
+    def addition_fusion(
+        latent_dim: int,
+        textual_path: Path,
+        relational_path: Path,
+        seed: int,
+        max_epochs=5,
     ):
-        train(
-            model_cls="TransformerFusion",
+        tdim, tname = textual_path.stem, textual_path.parent.stem
+        rdim, rname = relational_path.stem, relational_path.parent.stem
+        prefix = f"{tname}_{rname}/{tdim}_{rdim}"
+        return run(
+            model_cls="AdditionFusion",
+            textual_path=textual_path,
+            relational_path=relational_path,
             latent_dim=latent_dim,
-            textual_path=t,
-            relational_path=r,
             seed=seed,
+            max_epochs=max_epochs,
+            kwargs={},
+            prefix=prefix,
+        )
+
+    @app.command()
+    def gated_fusion(
+        latent_dim: int,
+        textual_path: Path,
+        relational_path: Path,
+        seed: int,
+        max_epochs=5,
+    ):
+        tdim, tname = textual_path.stem, textual_path.parent.stem
+        rdim, rname = relational_path.stem, relational_path.parent.stem
+        prefix = f"{tname}_{rname}/{tdim}_{rdim}"
+        return run(
+            model_cls="GatedFusion",
+            textual_path=textual_path,
+            relational_path=relational_path,
+            latent_dim=latent_dim,
+            seed=seed,
+            max_epochs=max_epochs,
+            kwargs={},
+            prefix=prefix,
+        )
+
+    @app.command()
+    def lowrank_fusion(
+        latent_dim: int,
+        textual_path: Path,
+        relational_path: Path,
+        seed: int,
+        max_epochs=5,
+        rank: int = 4,
+    ):
+        tdim, tname = textual_path.stem, textual_path.parent.stem
+        rdim, rname = relational_path.stem, relational_path.parent.stem
+        prefix = f"{tname}_{rname}/{tdim}_{rdim}/{rank}"
+        return run(
+            model_cls="LowRankFusion",
+            textual_path=textual_path,
+            relational_path=relational_path,
+            latent_dim=latent_dim,
+            seed=seed,
+            max_epochs=max_epochs,
+            kwargs={"rank": rank},
+            prefix=prefix,
+        )
+
+    @app.command()
+    def transformer_fusion(
+        latent_dim: int,
+        textual_path: Path,
+        relational_path: Path,
+        seed: int,
+        max_epochs = 5,
+        num_layers: int = 1,
+        nhead: int = 1,
+        output_modality: str = "both",
+    ):
+        tdim, tname = textual_path.stem, textual_path.parent.stem
+        rdim, rname = relational_path.stem, relational_path.parent.stem
+        prefix = f"{tname}_{rname}/{tdim}_{rdim}/{num_layers}_{nhead}/{output_modality}"
+        return run(
+            model_cls="GatedFusion",
+            textual_path=textual_path,
+            relational_path=relational_path,
+            latent_dim=latent_dim,
+            seed=seed,
+            max_epochs=max_epochs,
             kwargs={
-                "num_layers": nlayer,
+                "num_layers": num_layers,
                 "nhead": nhead,
                 "output_modality": output_modality,
             },
+            prefix=prefix,
         )
 
-# relational_path = constants.SAVED_EMBEDDINGS_DIR / "relational" / "node2vec" / "128.pt"
-# textual_path = constants.SAVED_EMBEDDINGS_DIR / "textual" / "minilm" / "384.pt"
-# seed = "0"
-# tdim, tname = textual_path.stem, textual_path.parent.stem
-# rdim, rname = relational_path.stem, relational_path.parent.stem
-# output_modality = "relational"
 
-# kwargs={
-#     "num_layers": 1,
-#     "nhead": 1,
-#     "output_modality": output_modality,       
-# }
-# config = Config(
-#     model_cls="TransformerFusion",
-#     textual_path=textual_path,
-#     relational_path=relational_path,
-#     latent_dim=128,
-#     max_epochs=1,
-#     lr=0.01,
-#     seed=seed,
-#     prefix=f"{tname}_{rname}/{tdim}_{rdim}/{output_modality}",
-#     kwargs=kwargs,
-# )
-# driver = Driver(config)
-# driver.run()
+class Experiment:
+
+    textuals = (SAVED_EMBEDDINGS_DIR / "textual").glob("**/*.pt")
+    relationls = (SAVED_EMBEDDINGS_DIR / "relational").glob("**/*.pt")
+    input_features = list(product(textuals, relationls))
+
+    @app.command()
+    def transformer_exp():
+        nlayers = 3
+        nheads = 4
+        max_epochs = 5
+        latent_dim = 128
+        for output_modality in ["both", "textual", "relational"]:
+            for textual_path, relational_path in Experiment.input_features:
+                # for latent_dim in [32, 64, 128, 256]:
+                for seed in range(5):
+                    tdim, tname = textual_path.stem, textual_path.parent.stem
+                    rdim, rname = relational_path.stem, relational_path.parent.stem
+                    prefix = f"{tname}_{rname}/{tdim}_{rdim}/{nlayers}_{nheads}/{output_modality}"
+                    run(
+                        model_cls="TransformerFusion",
+                        textual_path=textual_path,
+                        relational_path=relational_path,
+                        latent_dim=latent_dim,
+                        seed=seed,
+                        max_epochs=max_epochs,
+                        kwargs={
+                            "num_layers": nlayers,
+                            "nhead": nheads,
+                            "output_modality": output_modality,
+                        },
+                        prefix=prefix,
+                    )
+
+    @app.command()
+    def early_exp():
+        max_epochs = 5
+        latent_dim = 128
+        for textual_path, relational_path in Experiment.input_features:
+            # for latent_dim in [32, 64, 128, 256]:
+            for seed in range(5):
+                tdim, tname = textual_path.stem, textual_path.parent.stem
+                rdim, rname = relational_path.stem, relational_path.parent.stem
+                prefix = f"{tname}_{rname}/{tdim}_{rdim}"
+                run(
+                    model_cls="EarlyFusion",
+                    textual_path=textual_path,
+                    relational_path=relational_path,
+                    latent_dim=latent_dim,
+                    seed=seed,
+                    max_epochs=max_epochs,
+                    kwargs={},
+                    prefix=prefix,
+                )
+
+    @app.command()
+    def addition_exp():
+        max_epochs = 5
+        latent_dim = 128
+        seeds = list(range(3))
+        variables = product(Experiment.input_features, seeds)
+        for (textual_path, relational_path), seed in tqdm(list(variables)):
+            tdim, tname = textual_path.stem, textual_path.parent.stem
+            rdim, rname = relational_path.stem, relational_path.parent.stem
+            prefix = f"{tname}_{rname}/{tdim}_{rdim}"
+            run(
+                model_cls="AdditionFusion",
+                textual_path=textual_path,
+                relational_path=relational_path,
+                latent_dim=latent_dim,
+                seed=seed,
+                max_epochs=max_epochs,
+                kwargs={},
+                prefix=prefix,
+            )
+
+    @app.command()
+    def gated_exp():
+        max_epochs = 5
+        latent_dim = 128
+        for textual_path, relational_path in Experiment.input_features:
+            # for latent_dim in [32, 64, 128, 256]:
+            for seed in range(5):
+                tdim, tname = textual_path.stem, textual_path.parent.stem
+                rdim, rname = relational_path.stem, relational_path.parent.stem
+                prefix = f"{tname}_{rname}/{tdim}_{rdim}"
+                run(
+                    model_cls="GatedFusion",
+                    textual_path=textual_path,
+                    relational_path=relational_path,
+                    latent_dim=latent_dim,
+                    seed=seed,
+                    max_epochs=max_epochs,
+                    kwargs={},
+                    prefix=prefix,
+                )
+
+    @app.command()
+    def lowrank_exp():
+        max_epochs = 5
+        latent_dim = 128
+        for textual_path, relational_path in Experiment.input_features:
+            # for latent_dim in [32, 64, 128, 256]:
+            for rank in [2, 4, 8]:
+                for seed in range(5):
+                    tdim, tname = textual_path.stem, textual_path.parent.stem
+                    rdim, rname = relational_path.stem, relational_path.parent.stem
+                    prefix = f"{tname}_{rname}/{tdim}_{rdim}/{rank}"
+                    run(
+                        model_cls="LowRankFusion",
+                        textual_path=textual_path,
+                        relational_path=relational_path,
+                        latent_dim=latent_dim,
+                        seed=seed,
+                        max_epochs=max_epochs,
+                        kwargs={"rank": rank},
+                        prefix=prefix,
+                    )
+
 
 
 if __name__ == "__main__":

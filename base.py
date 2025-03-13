@@ -66,7 +66,7 @@ class AbstractDriver(ABC):
 
     @property
     def logdir(self):
-        return self.trainer.logger.log_dir
+        return Path(self.trainer.logger.log_dir)
 
     def save_hparams(self):
         hparams_file = Path(self.logdir) / TensorBoardLogger.NAME_HPARAMS_FILE
@@ -114,6 +114,8 @@ class AbstractDriver(ABC):
                     auto_insert_metric_name=False,
                 ),
             ],
+            enable_model_summary=False,
+            enable_progress_bar=False
         )
 
     def fit(self):
