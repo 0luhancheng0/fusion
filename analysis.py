@@ -111,6 +111,29 @@ class AbstractAnalyzer(ABC):
         self.save_figure(fig, filepath)
         return fig
 
+    def run(self):
+        """Run all available visualizations for this analyzer.
+        
+        Returns:
+            dict: A dictionary mapping visualization names to the corresponding figure objects
+        """
+        print(f"Running analysis for {self.__class__.__name__}...")
+        results = {}
+        
+        # Run the main analysis
+        analysis_result = self.analyze()
+        if analysis_result is not None:
+            print("Analysis complete.")
+        
+        # Run the main visualization
+        try:
+            results["main"] = self.visualize()
+            print("Main visualization created.")
+        except Exception as e:
+            print(f"Error creating main visualization: {e}")
+        
+        return results
+
 
 class ASGCAnalyzer(AbstractAnalyzer):
     def __init__(self, dpi=300, cmap="viridis"):
@@ -173,7 +196,7 @@ class ASGCAnalyzer(AbstractAnalyzer):
         return pd.DataFrame.from_dict(best_configs, orient='index')
         
     def visualize(self):
-        """Visualize ASGC results as a heatmap of test accuracy vs k and reg for each dimension."""
+        """Visualize ASGC results as a heatmap of test accuracy and link prediction vs k and reg for each dimension."""
         if self.df.empty:
             print("No data to visualize.")
             return plt.figure()
@@ -182,68 +205,89 @@ class ASGCAnalyzer(AbstractAnalyzer):
         dimensions = self.df["dim"].unique()
 
         if len(dimensions) > 1:
-            # Create a figure with a 2x2 grid for different dimensions
+            # Create a figure with a grid for different dimensions (rows) and metrics (columns)
             n_dims = len(dimensions)
-            n_cols = min(2, n_dims)
-            n_rows = (
-                n_dims + n_cols - 1
-            ) // n_cols  # Ceiling division for number of rows
-
+            n_cols = 2  # One for accuracy, one for link prediction
+            n_rows = n_dims
+            
             fig, axes = plt.subplots(
                 n_rows,
                 n_cols,
-                figsize=(self.figsize[0] * n_cols, self.figsize[1] * n_rows),
+                figsize=(self.figsize[0] * n_cols * 1.2, self.figsize[1] * n_rows),
                 squeeze=False,
             )
 
             for i, dim in enumerate(sorted(dimensions)):
-                # Calculate row and column for this dimension
-                row = i // n_cols
-                col = i % n_cols
-
                 # Filter data for this dimension
                 dim_df = self.df[self.df["dim"] == dim]
 
-                # Create pivot table for this dimension
-                pivot_data = (
+                # Create pivot tables for both metrics
+                acc_pivot = (
                     dim_df.groupby(["k", "reg"])
                     .agg({"acc/test": "mean"})
                     .reset_index()
                     .pivot(index="k", columns="reg", values="acc/test")
                 )
+                
+                lp_pivot = (
+                    dim_df.groupby(["k", "reg"])
+                    .agg({"lp/auc": "mean"})
+                    .reset_index()
+                    .pivot(index="k", columns="reg", values="lp/auc")
+                )
 
-                # Plot heatmap
-                ax = axes[row, col]
-                sns.heatmap(pivot_data, cmap=self.cmap, annot=True, fmt=".3f", ax=ax)
-                ax.set_title(f"ASGC Test Accuracy (dim={dim})")
-                ax.set_xlabel("Regularization")
-                ax.set_ylabel("k")
-
-            # Hide empty subplots if any
-            for i in range(len(dimensions), n_rows * n_cols):
-                row = i // n_cols
-                col = i % n_cols
-                axes[row, col].axis("off")
+                # Plot accuracy heatmap in first column
+                ax1 = axes[i, 0]
+                sns.heatmap(acc_pivot, cmap=self.cmap, annot=True, fmt=".3f", ax=ax1)
+                ax1.set_title(f"Test Accuracy (dim={dim})")
+                ax1.set_xlabel("Regularization")
+                ax1.set_ylabel("Number of Hops (k)")
+                
+                # Plot link prediction heatmap in second column
+                ax2 = axes[i, 1]
+                sns.heatmap(lp_pivot, cmap="RdYlGn", annot=True, fmt=".3f", ax=ax2)
+                ax2.set_title(f"Link Prediction AUC (dim={dim})")
+                ax2.set_xlabel("Regularization")
+                ax2.set_ylabel("Number of Hops (k)")
 
             plt.tight_layout()
-            return self.save_and_return(fig, "heatmap")
+            return self.save_and_return(fig, "heatmap_combined")
 
         else:
-            # Single dimension case - use original code
-            fig, ax = plt.subplots(figsize=self.figsize)
-            pivot_data = (
+            # Single dimension case
+            dim = dimensions[0]
+            fig, axes = plt.subplots(1, 2, figsize=(self.figsize[0] * 2.2, self.figsize[1]))
+            
+            # Test accuracy heatmap
+            acc_pivot = (
                 self.df.groupby(["k", "reg"])
                 .agg({"acc/test": "mean"})
                 .reset_index()
                 .pivot(index="k", columns="reg", values="acc/test")
             )
+            
+            # Link prediction heatmap
+            lp_pivot = (
+                self.df.groupby(["k", "reg"])
+                .agg({"lp/auc": "mean"})
+                .reset_index()
+                .pivot(index="k", columns="reg", values="lp/auc")
+            )
 
-            sns.heatmap(pivot_data, cmap=self.cmap, annot=True, fmt=".3f", ax=ax)
-            ax.set_title(f"ASGC Test Accuracy (dim={dimensions[0]})")
-            ax.set_xlabel("Regularization")
-            ax.set_ylabel("k")
-
-            return self.save_and_return(fig, f"heatmap_dim{dimensions[0]}")
+            # Plot accuracy heatmap
+            sns.heatmap(acc_pivot, cmap=self.cmap, annot=True, fmt=".3f", ax=axes[0])
+            axes[0].set_title(f"Test Accuracy (dim={dim})")
+            axes[0].set_xlabel("Regularization")
+            axes[0].set_ylabel("Number of Hops (k)")
+            
+            # Plot link prediction heatmap
+            sns.heatmap(lp_pivot, cmap="RdYlGn", annot=True, fmt=".3f", ax=axes[1])  # Different colormap for distinction
+            axes[1].set_title(f"Link Prediction AUC (dim={dim})")
+            axes[1].set_xlabel("Regularization")
+            axes[1].set_ylabel("Number of Hops (k)")
+            
+            plt.tight_layout()
+            return self.save_and_return(fig, f"heatmap_combined_dim{dim}")
 
     def visualize_parameter_impact(self, dim=None):
         """
@@ -286,8 +330,16 @@ class ASGCAnalyzer(AbstractAnalyzer):
         else:
             return self.save_and_return(fig, "parameter_impact")
 
-    def load_coefficients(self, path_or_index):
-        """Load coefficients from a file path or by index in the DataFrame."""
+    def load_coefficients_to_cpu(self, path_or_index):
+        """
+        Load coefficients from a file path or by index in the DataFrame, ensuring they're loaded to CPU.
+        
+        Args:
+            path_or_index: Either a file path or an index in the DataFrame
+            
+        Returns:
+            Tensor of coefficients on CPU or None if file doesn't exist
+        """
         if isinstance(path_or_index, int):
             path = Path(self.df.iloc[path_or_index]['path']) / 'coefficients.pt'
         else:
@@ -297,11 +349,16 @@ class ASGCAnalyzer(AbstractAnalyzer):
             print(f"Coefficients file not found: {path}")
             return None
             
-        return torch.load(path)
+        return torch.load(path, map_location="cpu")
+    
+    def load_coefficients(self, path_or_index):
+        """Load coefficients from a file path or by index in the DataFrame."""
+        # Maintain backwards compatibility by calling the new method
+        return self.load_coefficients_to_cpu(path_or_index)
 
     def visualize_coefficients(self, path_or_index):
         """Visualize the learned coefficients for a specific experiment."""
-        coefficients = self.load_coefficients(path_or_index)
+        coefficients = self.load_coefficients_to_cpu(path_or_index)
         if coefficients is None:
             return plt.figure()
             
@@ -337,18 +394,18 @@ class ASGCAnalyzer(AbstractAnalyzer):
             # Option 1: Sample a subset of features
             sample_size = min(20, coefficients.shape[1])
             sampled_indices = torch.randperm(coefficients.shape[1])[:sample_size]
-            coeffs_to_plot = coefficients[:, sampled_indices].cpu()
+            coeffs_to_plot = coefficients[:, sampled_indices]  # Already on CPU
             
             for i in range(sample_size):
                 ax.plot(range(num_coeffs), coeffs_to_plot[:, i], alpha=0.6, marker='o')
             
             # Also plot the mean coefficient
-            mean_coeff = coefficients.mean(dim=1).cpu()
+            mean_coeff = coefficients.mean(dim=1)  # Already on CPU
             ax.plot(range(num_coeffs), mean_coeff, 'k-', linewidth=2, label='Mean')
         else:
             # Plot all features
             for i in range(coefficients.shape[1]):
-                ax.plot(range(num_coeffs), coefficients[:, i].cpu(), alpha=0.6, marker='o')
+                ax.plot(range(num_coeffs), coefficients[:, i], alpha=0.6, marker='o')
         
         ax.set_title(f'ASGC Coefficients ({title_info})')
         ax.set_xlabel('Hop (k)')
@@ -360,6 +417,153 @@ class ASGCAnalyzer(AbstractAnalyzer):
             
         return self.save_and_return(fig, filename)
 
+    def visualize_coefficient_heatmaps(self, dim=None, k_values=None, reg_values=None):
+        """
+        Visualize ASGC coefficients using heatmaps for different experiments.
+        
+        Args:
+            dim: If provided, only show this dimension, otherwise select a representative dimension
+            k_values: List of k values to include, if None select representative ones
+            reg_values: List of regularization values to include, if None select representative ones
+            
+        Returns:
+            matplotlib figure showing coefficient heatmaps
+        """
+        if self.df.empty:
+            print("No data to visualize.")
+            return plt.figure()
+            
+        # Filter by dimension if provided
+        if dim is not None:
+            df_filtered = self.df[self.df['dim'] == dim].copy()
+        else:
+            # Use the first dimension if there are multiple
+            dims = sorted(self.df['dim'].unique())
+            if dims:
+                df_filtered = self.df[self.df['dim'] == dims[0]].copy()
+                dim = dims[0]  # Store the selected dimension
+            else:
+                df_filtered = self.df.copy()
+            
+        if df_filtered.empty:
+            print(f"No data for dimension {dim}.")
+            return plt.figure()
+        
+        # Filter by k and reg values if provided or select representative ones
+        if k_values is None:
+            all_k = sorted(df_filtered['k'].unique())
+            # Select a representative set (up to 4) across the range
+            if len(all_k) > 4:
+                indices = np.linspace(0, len(all_k) - 1, 4, dtype=int)
+                k_values = [all_k[i] for i in indices]
+            else:
+                k_values = all_k
+                
+        if reg_values is None:
+            all_reg = sorted(df_filtered['reg'].unique())
+            # Select a representative set (up to 4) across the range
+            if len(all_reg) > 4:
+                indices = np.linspace(0, len(all_reg) - 1, 4, dtype=int)
+                reg_values = [all_reg[i] for i in indices]
+            else:
+                reg_values = all_reg
+        
+        # Filter dataframe by selected k and reg values
+        df_filtered = df_filtered[df_filtered['k'].isin(k_values) & df_filtered['reg'].isin(reg_values)]
+        
+        if df_filtered.empty:
+            print("No data for the selected parameters.")
+            return plt.figure()
+        
+        # Create a grid of plots - one for each combination of k and regularization
+        n_rows = len(reg_values)
+        n_cols = len(k_values)
+        
+        fig, axes = plt.subplots(n_rows, n_cols, 
+                                figsize=(3.5 * n_cols, 3 * n_rows),
+                                squeeze=False)
+                                
+        # Title for the entire figure
+        if dim is not None:
+            fig.suptitle(f'ASGC Coefficients Heatmaps (dim={dim})', fontsize=16, y=0.98)
+        else:
+            fig.suptitle(f'ASGC Coefficients Heatmaps', fontsize=16, y=0.98)
+        
+        # For each combination of regularization (rows) and k (columns)
+        for i, reg in enumerate(reg_values):
+            for j, k in enumerate(k_values):
+                # Find matching experiment
+                matches = df_filtered[(df_filtered['reg'] == reg) & (df_filtered['k'] == k)]
+                
+                ax = axes[i, j]
+                
+                if not matches.empty:
+                    # Load coefficients for this experiment
+                    coeff_path = os.path.join(matches.iloc[0]['path'], 'coefficients.pt')
+                    
+                    if os.path.exists(coeff_path):
+                        # Use the new method to ensure coefficients are loaded to CPU
+                        coeffs = self.load_coefficients_to_cpu(coeff_path)
+                        coeffs = coeffs.numpy()  # Convert to NumPy array
+                        
+                        # For visualization, restrict to a manageable number of features
+                        if coeffs.shape[1] > 100:
+                            # Sample features randomly
+                            sample_indices = np.random.choice(coeffs.shape[1], 100, replace=False)
+                            coeffs_sample = coeffs[:, sample_indices]
+                        else:
+                            coeffs_sample = coeffs
+                            
+                        # Create heatmap
+                        im = ax.imshow(coeffs_sample, aspect='auto', cmap='viridis')
+                        ax.set_title(f'reg={reg}, k={k}')
+                        ax.set_xlabel('Features (sampled)')
+                        ax.set_ylabel('Hop Index')
+                        
+                        # Add colorbar
+                        plt.colorbar(im, ax=ax, shrink=0.8)
+                    else:
+                        # No coefficients file
+                        ax.text(0.5, 0.5, f"No coefficients\nfor reg={reg}, k={k}", 
+                                ha='center', va='center', transform=ax.transAxes)
+                        ax.set_xticks([])
+                        ax.set_yticks([])
+                else:
+                    # No matching experiment
+                    ax.text(0.5, 0.5, f"No experiment\nfor reg={reg}, k={k}", 
+                            ha='center', va='center', transform=ax.transAxes)
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+        
+        plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust layout to make room for suptitle
+        
+        # Generate an appropriate filename
+        if dim is not None:
+            filename = f"coefficient_heatmaps_dim{dim}"
+        else:
+            filename = f"coefficient_heatmaps"
+            
+        return self.save_and_return(fig, filename)
+
+    def run(self):
+        """Run all available visualizations for ASGC analysis."""
+        results = super().run()
+        
+        # Add ASGC-specific visualizations
+        try:
+            results["parameter_impact"] = self.visualize_parameter_impact()
+            print("Parameter impact visualization created.")
+        except Exception as e:
+            print(f"Error creating parameter impact visualization: {e}")
+            
+        try:
+            results["coefficient_heatmaps"] = self.visualize_coefficient_heatmaps()
+            print("Coefficient heatmaps created.")
+        except Exception as e:
+            print(f"Error creating coefficient heatmaps: {e}")
+            
+        return results
+
 
 class FusionAnalyzer(AbstractAnalyzer):
     """Base class for analyzing fusion experiments."""
@@ -369,7 +573,7 @@ class FusionAnalyzer(AbstractAnalyzer):
         base_path = f"/home/lcheng/oz318/fusion/logs/{experiment_type}"
         super().__init__(base_path, dpi, cmap, figsize)
     def post_process(self):
-        self.df[["textual_name", "relational_name", "textual_dim", "relational_dim"]] = self.df.prefix.str.split(
+        self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim"]] = self.df.prefix.str.split(
             "[/_]"
         ).tolist()
         self.df = self.df.drop(columns=["prefix"])
@@ -458,15 +662,32 @@ class FusionAnalyzer(AbstractAnalyzer):
             
         return self.save_and_return(fig, filename)
 
+    def run(self):
+        """Run all available visualizations for fusion analysis."""
+        results = super().run()
+        
+        # Add any fusion-specific visualizations (currently just using the base implementation)
+        # Can be extended with additional visualizations in the future
+        
+        return results
+
 
 class AdditionFusionAnalyzer(FusionAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
         super().__init__("AdditionFusion", dpi, cmap, figsize)
 
+    def run(self):
+        """Run all available visualizations for addition fusion analysis."""
+        return super().run()
+
 
 class EarlyFusionAnalyzer(FusionAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
         super().__init__("EarlyFusion", dpi, cmap, figsize)
+
+    def run(self):
+        """Run all available visualizations for early fusion analysis."""
+        return super().run()
 
 
 class GatedFusionAnalyzer(FusionAnalyzer):
@@ -479,7 +700,7 @@ class GatedFusionAnalyzer(FusionAnalyzer):
 
         for i, path in enumerate(self.results_paths):
             result_path = path.parent / "gate_scores.json"
-            if result_path.exists():
+            if (result_path.exists()):
                 with open(result_path, "r") as f:
                     scores = json.load(f)
                 gate_scores.append(
@@ -522,11 +743,27 @@ class GatedFusionAnalyzer(FusionAnalyzer):
         plt.tight_layout()
         return self.save_and_return(fig, f"gate_distribution_n{num_samples}")
 
+    def run(self):
+        """Run all available visualizations for gated fusion analysis."""
+        results = super().run()
+        
+        try:
+            results["gate_distribution"] = self.visualize_gate_distribution()
+            print("Gate distribution visualization created.")
+        except Exception as e:
+            print(f"Error creating gate distribution visualization: {e}")
+            
+        return results
+
 
 class LowRankFusionAnalyzer(FusionAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
         super().__init__("LowRankFusion", dpi, cmap, figsize)
-
+    def post_process(self):
+        self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "rank"]] = self.df.prefix.str.split(
+            "[/_]"
+        ).tolist()
+        self.df = self.df.drop(columns=["prefix"])
     def analyze(self):
         """Analyze with additional focus on rank parameter."""
         if self.df.empty:
@@ -561,8 +798,8 @@ class LowRankFusionAnalyzer(FusionAnalyzer):
             return plt.figure()
 
         # Extract rank if not already done
-        if "rank" not in self.df.columns:
-            self.df["rank"] = self.df["path"].str.extract(r"/\d+_\d+/(\d+)").astype(int)
+        # if "rank" not in self.df.columns:
+        #     self.df["rank"] = self.df["path"].str.extract(r"/\d+_\d+/(\d+)").astype(int)
 
         fig, ax = plt.subplots(figsize=(10, 6))
         sns.boxplot(x="rank", y="acc/test", hue="latent_dim", data=self.df, ax=ax)
@@ -572,6 +809,18 @@ class LowRankFusionAnalyzer(FusionAnalyzer):
         ax.legend(title="Latent Dim")
 
         return self.save_and_return(fig, "rank_impact")
+
+    def run(self):
+        """Run all available visualizations for low rank fusion analysis."""
+        results = super().run()
+        
+        try:
+            results["rank_impact"] = self.visualize_rank_impact()
+            print("Rank impact visualization created.")
+        except Exception as e:
+            print(f"Error creating rank impact visualization: {e}")
+            
+        return results
 
 
 class TransformerFusionAnalyzer(FusionAnalyzer):
@@ -684,6 +933,24 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         plt.tight_layout()
         return self.save_and_return(fig, "architecture_impact")
 
+    def run(self):
+        """Run all available visualizations for transformer fusion analysis."""
+        results = super().run()
+        
+        try:
+            results["output_modality"] = self.visualize_output_modality()
+            print("Output modality visualization created.")
+        except Exception as e:
+            print(f"Error creating output modality visualization: {e}")
+            
+        try:
+            results["architecture_impact"] = self.visualize_architecture_impact()
+            print("Architecture impact visualization created.")
+        except Exception as e:
+            print(f"Error creating architecture impact visualization: {e}")
+            
+        return results
+
 
 class CrossModelAnalyzer(AbstractAnalyzer):
     """Compare results across different fusion models."""
@@ -767,6 +1034,18 @@ class CrossModelAnalyzer(AbstractAnalyzer):
 
         return self.save_and_return(fig, "embedding_type_comparison")
 
+    def run(self):
+        """Run all available visualizations for cross-model analysis."""
+        results = super().run()
+        
+        try:
+            results["embedding_type"] = self.visualize_by_embedding_type()
+            print("Embedding type comparison visualization created.")
+        except Exception as e:
+            print(f"Error creating embedding type comparison: {e}")
+            
+        return results
+
 
 class Node2VecAnalyzer(AbstractAnalyzer):
     """Analyzer for Node2Vec embeddings results."""
@@ -795,7 +1074,7 @@ class Node2VecAnalyzer(AbstractAnalyzer):
             .agg({
                 "acc/val": ["mean", "std", "min", "max"],
                 "acc/test": ["mean", "std", "min", "max"],
-                # Add more metrics if available in your results
+                "lp/auc": ["mean", "std", "min", "max"],  # Added link prediction metric
             })
             .reset_index()
         )
@@ -810,73 +1089,72 @@ class Node2VecAnalyzer(AbstractAnalyzer):
             print("No data to visualize.")
             return plt.figure()
         
-        fig, ax = plt.subplots(figsize=self.figsize)
+        # Create two subplots - one for node classification, one for link prediction
+        fig, axes = plt.subplots(1, 2, figsize=(self.figsize[0]*2, self.figsize[1]), squeeze=False)
         
-        # Create box plots for test accuracy by dimension
-        sns.boxplot(x="dim", y="acc/test", data=self.df, ax=ax)
-        ax.set_title("Node2Vec Test Accuracy by Embedding Dimension")
-        ax.set_xlabel("Embedding Dimension")
-        ax.set_ylabel("Test Accuracy")
+        # Plot 1: Node classification (test accuracy) by dimension
+        sns.boxplot(x="dim", y="acc/test", data=self.df, ax=axes[0, 0])
+        axes[0, 0].set_title("Node Classification Accuracy by Dimension")
+        axes[0, 0].set_xlabel("Embedding Dimension")
+        axes[0, 0].set_ylabel("Test Accuracy")
         
-        return self.save_and_return(fig, "accuracy_by_dimension")
+        # Plot 2: Link prediction by dimension
+        if "lp/auc" in self.df.columns:
+            sns.boxplot(x="dim", y="lp/auc", data=self.df, ax=axes[0, 1])
+            axes[0, 1].set_title("Link Prediction AUC by Dimension")
+            axes[0, 1].set_xlabel("Embedding Dimension")
+            axes[0, 1].set_ylabel("AUC")
+        else:
+            axes[0, 1].text(0.5, 0.5, "Link prediction data not available", 
+                          ha='center', va='center', transform=axes[0, 1].transAxes)
+            axes[0, 1].set_xticks([])
+            axes[0, 1].set_yticks([])
+        
+        plt.tight_layout()
+        return self.save_and_return(fig, "performance_by_dimension")
     
-    def visualize_seed_variance(self):
-        """Visualize the variance across different seeds for each dimension."""
-        if self.df.empty:
-            print("No data to visualize.")
-            return plt.figure()
-        
-        # Create a line plot showing performance by seed for each dimension
-        fig, ax = plt.subplots(figsize=self.figsize)
-        
-        for dim in sorted(self.df['dim'].unique()):
-            dim_data = self.df[self.df['dim'] == dim]
-            ax.plot(dim_data['seed'], dim_data['acc/test'], 'o-', label=f'dim={dim}')
-        
-        ax.set_title("Node2Vec Test Accuracy by Seed")
-        ax.set_xlabel("Seed")
-        ax.set_ylabel("Test Accuracy")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        
-        return self.save_and_return(fig, "accuracy_by_seed")
-    
-    def compare_val_test(self):
-        """Compare validation and test performance."""
-        if self.df.empty:
-            print("No data to analyze.")
+    def visualize_task_comparison(self):
+        """Compare node classification and link prediction performance."""
+        if self.df.empty or "lp/auc" not in self.df.columns:
+            print("No data for task comparison.")
             return plt.figure()
         
         fig, ax = plt.subplots(figsize=self.figsize)
         
-        # Plot validation vs test accuracy
-        ax.scatter(self.df['acc/val'], self.df['acc/test'], c=self.df['dim'], 
-                   cmap=self.cmap, alpha=0.7, s=50)
+        # Calculate average metrics by dimension
+        dim_metrics = self.df.groupby('dim').agg({
+            'acc/test': 'mean', 
+            'lp/auc': 'mean'
+        }).reset_index()
         
-        # Add a diagonal line for reference
-        lims = [
-            min(ax.get_xlim()[0], ax.get_ylim()[0]),
-            max(ax.get_xlim()[1], ax.get_ylim()[1]),
-        ]
-        ax.plot(lims, lims, 'k--', alpha=0.5, label='y=x')
+        # Plot comparison
+        width = 0.35
+        x = np.arange(len(dim_metrics))
         
-        ax.set_title("Node2Vec Validation vs Test Accuracy")
-        ax.set_xlabel("Validation Accuracy")
-        ax.set_ylabel("Test Accuracy")
+        ax.bar(x - width/2, dim_metrics['acc/test'], width, label='Node Classification', color='#1f77b4')
+        ax.bar(x + width/2, dim_metrics['lp/auc'], width, label='Link Prediction', color='#ff7f0e')
         
-        # Add a colorbar to show dimension mapping
-        sm = plt.cm.ScalarMappable(cmap=self.cmap)
-        sm.set_array(self.df['dim'])
-        cbar = plt.colorbar(sm, ax=ax)
-        cbar.set_label('Embedding Dimension')
-        
-        # Add a legend
+        ax.set_xlabel('Embedding Dimension')
+        ax.set_ylabel('Performance')
+        ax.set_title('Node2Vec: Task Performance Comparison by Dimension')
+        ax.set_xticks(x)
+        ax.set_xticklabels(dim_metrics['dim'])
         ax.legend()
         
-        return self.save_and_return(fig, "val_vs_test")
+        # Add value labels on bars
+        for i, v in enumerate(dim_metrics['acc/test']):
+            ax.text(i - width/2, v + 0.01, f'{v:.3f}', 
+                    ha='center', va='bottom', fontsize=8, color='#1f77b4')
+            
+        for i, v in enumerate(dim_metrics['lp/auc']):
+            ax.text(i + width/2, v + 0.01, f'{v:.3f}', 
+                    ha='center', va='bottom', fontsize=8, color='#ff7f0e')
+        
+        plt.tight_layout()
+        return self.save_and_return(fig, "task_comparison")
     
     def find_best_dimension(self, metric="acc/test"):
-        """Find the best performing dimension."""
+        """Find the best performing dimension for specified metric."""
         if self.df.empty:
             print("No data to analyze.")
             return None
@@ -888,53 +1166,33 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         best_idx = dim_performance['mean'].idxmax()
         best_dim = dim_performance.loc[best_idx]
         
-        print(f"Best dimension: {best_dim['dim']} with {metric}={best_dim['mean']:.4f} ± {best_dim['std']:.4f}")
+        print(f"Best dimension for {metric}: {best_dim['dim']} with {best_dim['mean']:.4f} ± {best_dim['std']:.4f}")
         
         return best_dim
     
-    def load_embeddings_by_dim(self, dim):
-        """Load embeddings for a specific dimension, averaging across seeds."""
-        paths = self.df[self.df['dim'] == dim]['path'].tolist()
+    def run(self):
+        """Run all available visualizations for Node2Vec analysis."""
+        results = super().run()
         
-        embeddings = []
-        for path in paths:
-            emb_path = os.path.join(path, 'embeddings.pt')
-            if os.path.exists(emb_path):
-                embeddings.append(torch.load(emb_path))
-        
-        if not embeddings:
-            print(f"No embeddings found for dimension {dim}")
-            return None
-        
-        # Average embeddings across seeds
-        return torch.stack(embeddings).mean(dim=0)
-    
-    def save_best_embeddings(self, output_dir="/home/lcheng/oz318/fusion/saved_embeddings/ogbn-arxiv/relational/node2vec"):
-        """Save the best embeddings for each dimension to a specified directory."""
-        if self.df.empty:
-            print("No data to analyze.")
-            return
-        
-        # Create the output directory if it doesn't exist
-        os.makedirs(output_dir, exist_ok=True)
-        
-        # For each dimension, find the best seed
-        for dim in sorted(self.df['dim'].unique()):
-            dim_df = self.df[self.df['dim'] == dim]
-            best_seed_idx = dim_df['acc/test'].idxmax()
-            best_path = dim_df.loc[best_seed_idx, 'path']
+        try:
+            results["seed_variance"] = self.visualize_seed_variance()
+            print("Seed variance visualization created.")
+        except Exception as e:
+            print(f"Error creating seed variance visualization: {e}")
             
-            emb_path = os.path.join(best_path, 'embeddings.pt')
-            if os.path.exists(emb_path):
-                # Load the best embeddings
-                embeddings = torch.load(emb_path)
-                
-                # Save to the output directory
-                output_path = os.path.join(output_dir, f"{dim}.pt")
-                torch.save(embeddings, output_path)
-                print(f"Saved best embeddings for dim={dim} to {output_path}")
-            else:
-                print(f"No embeddings found at {emb_path}")
+        try:
+            results["val_test_comparison"] = self.compare_val_test()
+            print("Validation vs test comparison created.")
+        except Exception as e:
+            print(f"Error creating validation vs test comparison: {e}")
+        
+        try:
+            results["task_comparison"] = self.visualize_task_comparison()
+            print("Task performance comparison created.")
+        except Exception as e:
+            print(f"Error creating task performance comparison: {e}")
+        
+        return results
 
 class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
     """Analyzer for textual embeddings evaluation results."""
@@ -1192,28 +1450,33 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
             
         return best_model
 
+    def run(self):
+        """Run all available visualizations for textual embeddings analysis."""
+        results = super().run()
+        
+        try:
+            results["metrics"] = self.visualize_metrics()
+            print("Metrics comparison visualization created.")
+        except Exception as e:
+            print(f"Error creating metrics comparison: {e}")
+            
+        try:
+            results["dimension_impact"] = self.visualize_dimension_impact()
+            print("Dimension impact visualization created.")
+        except Exception as e:
+            print(f"Error creating dimension impact visualization: {e}")
+            
+        return results
 
-# Example usage for the new analyzer
-# textual_analyzer = TextualEmbeddingsAnalyzer()
-# textual_analyzer.visualize()
-# textual_analyzer.visualize_metrics()
-# textual_analyzer.visualize_dimension_impact()
-# best_model = textual_analyzer.find_best_model()
+
 
 %matplotlib inline
-
-# Updated example code at the end
+# analyzer = ASGCAnalyzer()
+# analyzer.run()
+# analyzer = TextualEmbeddingsAnalyzer()
+# analyzer.run()
 analyzer = Node2VecAnalyzer()
-analyzer.visualize()
-
-# Example of using the new Node2VecAnalyzer
-# node2vec_analyzer = Node2VecAnalyzer()
-# node2vec_analyzer.visualize()
-# node2vec_analyzer.visualize_seed_variance()
-# node2vec_analyzer.compare_val_test()
-
-
-
+analyzer.run()
 
 
 

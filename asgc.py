@@ -162,16 +162,29 @@ class ASGCDriver(DriverBase):
     
     def run(self):
         # Override the run method to implement custom behavior
-        # Setup model with data
-        # self.model.to(self.trainer.device if hasattr(self.trainer, 'device') else 'cuda')
-        # self.model.graph = self.model.graph.to(self.model.device)
-        # self.model.features = self.model.features.to(self.model.device)
+        import os
+        import json
+        
+        # Determine the save directory path
+        save_dir = os.path.join('/home/lcheng/oz318/fusion/logs/ASGC', 
+                              f"{self.model.input_features.shape[-1]}", 
+                              f"{self.config.reg}",
+                              f"{self.config.k}")
+        
+        # Check if results already exist
+        results_path = os.path.join(save_dir, 'results.json')
+        if os.path.exists(results_path):
+            print(f"Results already exist at {results_path}, skipping this trial.")
+            # Load and return existing results
+            with open(results_path, 'r') as f:
+                results = json.load(f)
+            return results
+        
+        # Create the directory if it doesn't exist
+        os.makedirs(save_dir, exist_ok=True)
         
         # Run model
         coefficients, embeddings = self.model.run()
-        
-        # Cache the embeddings
-        # self.model.embeddings = embeddings
         
         # Evaluate results using the appropriate evaluator
         results = {}
@@ -185,18 +198,7 @@ class ASGCDriver(DriverBase):
         )
         
         # Save results
-        import os
-        import json
-        
-        save_dir = os.path.join('/home/lcheng/oz318/fusion/logs/ASGC', 
-                              f"{self.model.input_features.shape[-1]}", 
-                              f"{self.config.reg}",
-                              f"{self.config.k}")
-        
-        os.makedirs(save_dir, exist_ok=True)
-        
-        # Save results
-        with open(os.path.join(save_dir, 'results.json'), 'w') as f:
+        with open(results_path, 'w') as f:
             json.dump(results, f, indent=2)
         
         # Save config
@@ -205,6 +207,9 @@ class ASGCDriver(DriverBase):
         
         # Save coefficients
         torch.save(coefficients, os.path.join(save_dir, 'coefficients.pt'))
+        
+        # Save embeddings
+        torch.save(embeddings, os.path.join(save_dir, 'embeddings.pt'))
         
         return results
 
@@ -215,8 +220,8 @@ def run_experiments():
     
     # Calculate total number of experiments
     dims = [32, 64, 128, 256]
-    regs = [1e3, 1e4]
-    ks = [1, 2, 4, 8]
+    regs = [0.01, 0.1, 1, 10, 100, 1e3, 1e4]
+    ks = [1, 2, 4, 8, 16, 32, 64]
     total_experiments = len(dims) * len(regs) * len(ks)
     
     # Create progress bar
@@ -226,7 +231,7 @@ def run_experiments():
         for reg in regs:
             for k in ks: 
                 # Call the single trial function
-                result = run(dim=dim, reg=reg, k=k, lr =0.01, weight_decay=5e-4)
+                result = run(dim=dim, reg=reg, k=k, lr=0.01, weight_decay=5e-4)
                 pbar.update(1)
                 pbar.set_description(f"Dim: {dim}, Reg: {reg}, K: {k}, Acc: {result.get('acc/valid', 0):.4f}")
     
@@ -235,11 +240,11 @@ def run_experiments():
 from typing_extensions import Annotated
 @app.command()
 def run(
-    dim: Annotated[int, typer.Option(128, help="Feature dimension")],
-    reg: Annotated[float, typer.Option(1.0, help="Regularization parameter")],
-    k: Annotated[int, typer.Option(8, help="Number of hops")],
-    lr: Annotated[float, typer.Option(0.01, help="Learning rate")],
-    weight_decay: Annotated[float, typer.Option(5e-4, help="Weight decay")]
+    dim: Annotated[int, typer.Argument(help="Feature dimension")],
+    reg: Annotated[float, typer.Argument(help="Regularization parameter")],
+    k: Annotated[int, typer.Argument(help="Number of hops")],
+    lr: Annotated[float, typer.Argument(help="Learning rate")],
+    weight_decay: Annotated[float, typer.Argument(help="Weight decay")]
 ):
     """Run a single trial with specified parameters."""
     config = Config(
@@ -249,7 +254,7 @@ def run(
         reg=reg,
         lr=lr,
         weight_decay=weight_decay,
-        prefix=f"single_trial/{dim}/{reg}/{k}"
+        prefix=f"{dim}/{reg}/{k}"
     )
 
     driver = ASGCDriver(config)

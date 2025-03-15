@@ -483,7 +483,7 @@ class Experiment:
             for (textual_path, relational_path), seed, latent_dim in tqdm(list(variables)):
                 tdim, tname = textual_path.stem, textual_path.parent.stem
                 rdim, rname = relational_path.stem, relational_path.parent.stem
-                prefix = f"{tname}_{rname}/{tdim}_{rdim}/{nlayers}_{nheads}/{output_modality}"
+                prefix = f"{tname}_{rname}/{tdim}_{rdim}/{latent_dim}/{nlayers}_{nheads}/{output_modality}"
                 run(
                     model_cls="TransformerFusion",
                     textual_path=textual_path,
@@ -505,7 +505,7 @@ class Experiment:
         for (textual_path, relational_path), seed, latent_dim in tqdm(list(variables)):
             tdim, tname = textual_path.stem, textual_path.parent.stem
             rdim, rname = relational_path.stem, relational_path.parent.stem
-            prefix = f"{tname}_{rname}/{tdim}_{rdim}"
+            prefix = f"{tname}_{rname}/{tdim}_{rdim}/{latent_dim}"
             run(
                 model_cls="EarlyFusion",
                 textual_path=textual_path,
@@ -523,7 +523,7 @@ class Experiment:
         for (textual_path, relational_path), seed, latent_dim in tqdm(list(variables)):
             tdim, tname = textual_path.stem, textual_path.parent.stem
             rdim, rname = relational_path.stem, relational_path.parent.stem
-            prefix = f"{tname}_{rname}/{tdim}_{rdim}"
+            prefix = f"{tname}_{rname}/{tdim}_{rdim}/{latent_dim}"
             run(
                 model_cls="AdditionFusion",
                 textual_path=textual_path,
@@ -541,7 +541,7 @@ class Experiment:
         for (textual_path, relational_path), seed, latent_dim in tqdm(list(variables)):
             tdim, tname = textual_path.stem, textual_path.parent.stem
             rdim, rname = relational_path.stem, relational_path.parent.stem
-            prefix = f"{tname}_{rname}/{tdim}_{rdim}"
+            prefix = f"{tname}_{rname}/{tdim}_{rdim}/{latent_dim}"
             run(
                 model_cls="GatedFusion",
                 textual_path=textual_path,
@@ -560,7 +560,7 @@ class Experiment:
         for (textual_path, relational_path), seed, latent_dim in tqdm(list(variables)):
             tdim, tname = textual_path.stem, textual_path.parent.stem
             rdim, rname = relational_path.stem, relational_path.parent.stem
-            prefix = f"{tname}_{rname}/{tdim}_{rdim}/{rank}"
+            prefix = f"{tname}_{rname}/{tdim}_{rdim}/{latent_dim}/{rank}"
             run(
                 model_cls="LowRankFusion",
                 textual_path=textual_path,
