@@ -14,7 +14,7 @@ import dgl
 from torchinfo import summary
 from torchmetrics.functional.classification import auroc, roc, precision_recall_curve
 
-from base import AbstractConfig, AbstractDriver
+from base import ConfigBase, DriverBase
 from typer import Typer
 
 app = Typer(help="Node2Vec training script")
@@ -109,7 +109,7 @@ class Node2VecLightning(L.LightningModule):
         )
 
 
-class Config(AbstractConfig):
+class Config(ConfigBase):
     def __init__(
         self,
         max_epochs,
@@ -142,7 +142,7 @@ class Config(AbstractConfig):
         self.sparse = sparse
 
 
-class Driver(AbstractDriver):
+class Driver(DriverBase):
     def __init__(self, config):
         super().__init__(config)
 

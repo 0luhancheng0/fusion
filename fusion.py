@@ -6,7 +6,7 @@ import torchmetrics.functional as F
 from einops import einsum
 from jaxtyping import Float
 from torch import Tensor, nn
-from base import AbstractConfig, AbstractDriver
+from base import ConfigBase, DriverBase
 from dataloading import FeatureModule
 from callbacks import LoggingEmbeddingCallback, LoggingGateScores
 from typing import Dict
@@ -19,10 +19,7 @@ from torchinfo import summary
 
 from constants import SAVED_EMBEDDINGS_DIR
 from itertools import product
-import logging
 
-logging.getLogger("lightning").setLevel(logging.ERROR)
-logging.getLogger("lightning.pytorch.utilities.rank_zero").setLevel(logging.FATAL)
 
 app = Typer()
 
@@ -251,7 +248,7 @@ class TransformerFusion(FusionClassification):
         return self.fusion_layer(torch.hstack((textual, relational)))
 
 
-class Config(AbstractConfig):
+class Config(ConfigBase):
     def __init__(
         self,
         model_cls: str,
@@ -274,7 +271,7 @@ class Config(AbstractConfig):
         self.kwargs = kwargs
 
 
-class Driver(AbstractDriver):
+class Driver(DriverBase):
 
     def setup_datamodule(self):
         datamodule = FeatureModule(
@@ -355,7 +352,7 @@ class SingleRun:
         textual_path: Path,
         relational_path: Path,
         seed: int,
-        max_epochs=5,
+        max_epochs: int = 5,
     ):
         tdim, tname = textual_path.stem, textual_path.parent.stem
         rdim, rname = relational_path.stem, relational_path.parent.stem
@@ -377,7 +374,7 @@ class SingleRun:
         textual_path: Path,
         relational_path: Path,
         seed: int,
-        max_epochs=5,
+        max_epochs: int = 5,
     ):
         tdim, tname = textual_path.stem, textual_path.parent.stem
         rdim, rname = relational_path.stem, relational_path.parent.stem
@@ -399,7 +396,7 @@ class SingleRun:
         textual_path: Path,
         relational_path: Path,
         seed: int,
-        max_epochs=5,
+        max_epochs: int = 5,
     ):
         tdim, tname = textual_path.stem, textual_path.parent.stem
         rdim, rname = relational_path.stem, relational_path.parent.stem
@@ -421,7 +418,7 @@ class SingleRun:
         textual_path: Path,
         relational_path: Path,
         seed: int,
-        max_epochs=5,
+        max_epochs: int = 5,
         rank: int = 4,
     ):
         tdim, tname = textual_path.stem, textual_path.parent.stem
@@ -444,7 +441,7 @@ class SingleRun:
         textual_path: Path,
         relational_path: Path,
         seed: int,
-        max_epochs = 5,
+        max_epochs: int = 5,
         num_layers: int = 1,
         nhead: int = 1,
         output_modality: str = "both",
@@ -474,16 +471,16 @@ class Experiment:
     relationls = (SAVED_EMBEDDINGS_DIR / "relational").glob("**/*.pt")
     input_features = list(product(textuals, relationls))
     max_epochs = 5
-    latent_dim = 128
-    seeds = list(range(3))
+    latent_dim = [32, 64, 128, 256]
+    seeds = list(range(5))
 
     @app.command()
     def transformer_exp():
         nlayers = 3
         nheads = 4
         for output_modality in ["both", "textual", "relational"]:
-            variables = product(Experiment.input_features, Experiment.seeds)
-            for (textual_path, relational_path), seed in tqdm(list(variables)):
+            variables = product(Experiment.input_features, Experiment.seeds, Experiment.latent_dim)
+            for (textual_path, relational_path), seed, latent_dim in tqdm(list(variables)):
                 tdim, tname = textual_path.stem, textual_path.parent.stem
                 rdim, rname = relational_path.stem, relational_path.parent.stem
                 prefix = f"{tname}_{rname}/{tdim}_{rdim}/{nlayers}_{nheads}/{output_modality}"
@@ -491,7 +488,7 @@ class Experiment:
                     model_cls="TransformerFusion",
                     textual_path=textual_path,
                     relational_path=relational_path,
-                    latent_dim=Experiment.latent_dim,
+                    latent_dim=latent_dim,
                     seed=seed,
                     max_epochs=Experiment.max_epochs,
                     kwargs={
@@ -504,8 +501,8 @@ class Experiment:
 
     @app.command()
     def early_exp():
-        variables = product(Experiment.input_features, Experiment.seeds)
-        for (textual_path, relational_path), seed in tqdm(list(variables)):
+        variables = product(Experiment.input_features, Experiment.seeds, Experiment.latent_dim)
+        for (textual_path, relational_path), seed, latent_dim in tqdm(list(variables)):
             tdim, tname = textual_path.stem, textual_path.parent.stem
             rdim, rname = relational_path.stem, relational_path.parent.stem
             prefix = f"{tname}_{rname}/{tdim}_{rdim}"
@@ -513,7 +510,7 @@ class Experiment:
                 model_cls="EarlyFusion",
                 textual_path=textual_path,
                 relational_path=relational_path,
-                latent_dim=Experiment.latent_dim,
+                latent_dim=latent_dim,
                 seed=seed,
                 max_epochs=Experiment.max_epochs,
                 kwargs={},
@@ -522,8 +519,8 @@ class Experiment:
 
     @app.command()
     def addition_exp():
-        variables = product(Experiment.input_features, Experiment.seeds)
-        for (textual_path, relational_path), seed in tqdm(list(variables)):
+        variables = product(Experiment.input_features, Experiment.seeds, Experiment.latent_dim)
+        for (textual_path, relational_path), seed, latent_dim in tqdm(list(variables)):
             tdim, tname = textual_path.stem, textual_path.parent.stem
             rdim, rname = relational_path.stem, relational_path.parent.stem
             prefix = f"{tname}_{rname}/{tdim}_{rdim}"
@@ -531,7 +528,7 @@ class Experiment:
                 model_cls="AdditionFusion",
                 textual_path=textual_path,
                 relational_path=relational_path,
-                latent_dim=Experiment.latent_dim,
+                latent_dim=latent_dim,
                 seed=seed,
                 max_epochs=Experiment.max_epochs,
                 kwargs={},
@@ -540,8 +537,8 @@ class Experiment:
 
     @app.command()
     def gated_exp():
-        variables = product(Experiment.input_features, Experiment.seeds)
-        for (textual_path, relational_path), seed in tqdm(list(variables)):
+        variables = product(Experiment.input_features, Experiment.seeds, Experiment.latent_dim)
+        for (textual_path, relational_path), seed, latent_dim in tqdm(list(variables)):
             tdim, tname = textual_path.stem, textual_path.parent.stem
             rdim, rname = relational_path.stem, relational_path.parent.stem
             prefix = f"{tname}_{rname}/{tdim}_{rdim}"
@@ -549,7 +546,7 @@ class Experiment:
                 model_cls="GatedFusion",
                 textual_path=textual_path,
                 relational_path=relational_path,
-                latent_dim=Experiment.latent_dim,
+                latent_dim=latent_dim,
                 seed=seed,
                 max_epochs=Experiment.max_epochs,
                 kwargs={},
@@ -559,8 +556,8 @@ class Experiment:
     @app.command()
     def lowrank_exp():
         rank = 4
-        variables = product(Experiment.input_features, Experiment.seeds)
-        for (textual_path, relational_path), seed in tqdm(list(variables)):
+        variables = product(Experiment.input_features, Experiment.seeds, Experiment.latent_dim)
+        for (textual_path, relational_path), seed, latent_dim in tqdm(list(variables)):
             tdim, tname = textual_path.stem, textual_path.parent.stem
             rdim, rname = relational_path.stem, relational_path.parent.stem
             prefix = f"{tname}_{rname}/{tdim}_{rdim}/{rank}"
@@ -568,7 +565,7 @@ class Experiment:
                 model_cls="LowRankFusion",
                 textual_path=textual_path,
                 relational_path=relational_path,
-                latent_dim=Experiment.latent_dim,
+                latent_dim=latent_dim,
                 seed=seed,
                 max_epochs=Experiment.max_epochs,
                 kwargs={"rank": rank},

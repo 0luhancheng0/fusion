@@ -10,9 +10,14 @@ import constants
 from lightning.pytorch.callbacks import ModelCheckpoint
 from dataloading import OGBNArxivDataset
 import json
+import logging
+
+log = logging.getLogger("lightning_fabric")
+log.propagate = False
+log.setLevel(logging.ERROR)
 
 
-class AbstractConfig(ABC):
+class ConfigBase(ABC):
     """Abstract base class for all configuration objects."""
 
     def __init__(self, seed, prefix):
@@ -46,14 +51,15 @@ class AbstractConfig(ABC):
         return cls.from_dict(config_dict)
 
 
-class AbstractDriver(ABC):
+class DriverBase(ABC):
     """Abstract base class for all model drivers."""
 
-    def __init__(self, config: AbstractConfig):
+    def __init__(self, config: ConfigBase):
         """Initialize the driver with a configuration."""
         self.config = config
-        self.setup()
         seed_everything(self.config.seed)
+        self.setup()
+        
 
     def setup(self):
 
@@ -98,7 +104,7 @@ class AbstractDriver(ABC):
         with open(results_file, "w") as f:
             json.dump(self.results, f, indent=4)
 
-    def setup_trainer(self, callbacks=[], monitor="loss/val", mode="min"):
+    def setup_trainer(self, callbacks=[], monitor="loss/val", mode="min", **kwargs):
         """Set up the Lightning trainer."""
 
         return L.Trainer(
@@ -115,7 +121,8 @@ class AbstractDriver(ABC):
                 ),
             ],
             enable_model_summary=False,
-            enable_progress_bar=False
+            enable_progress_bar=False,
+            **kwargs
         )
 
     def fit(self):
