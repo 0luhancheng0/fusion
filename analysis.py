@@ -376,8 +376,8 @@ class AbstractAnalyzer(ABC):
 
 
 class ASGCAnalyzer(AbstractAnalyzer):
-    def __init__(self, dpi=300, cmap="viridis", remove_outliers=False, outlier_params=None):
-        super().__init__("/home/lcheng/oz318/fusion/logs/ASGC", dpi, cmap, 
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), remove_outliers=False, outlier_params=None):
+        super().__init__("/home/lcheng/oz318/fusion/logs/ASGC", dpi, cmap, figsize, 
                          remove_outliers=remove_outliers, outlier_params=outlier_params)
 
     def post_process(self):
@@ -415,27 +415,6 @@ class ASGCAnalyzer(AbstractAnalyzer):
         result.columns = ["_".join(col).strip() for col in result.columns.values]
         return result
     
-    def find_best_parameters(self, metric="acc/test"):
-        """Find the best parameters according to a specified metric."""
-        if self.df.empty:
-            print("No data to analyze.")
-            return None
-        
-        # Find the best configuration for each dimension
-        best_configs = {}
-        for dim in self.df['dim'].unique():
-            dim_df = self.df[self.df['dim'] == dim]
-            best_idx = dim_df[metric].idxmax()
-            best_config = dim_df.loc[best_idx]
-            best_configs[dim] = {
-                'reg': best_config['reg'],
-                'k': best_config['k'],
-                metric: best_config[metric],
-                'path': best_config['path']
-            }
-        
-        return pd.DataFrame.from_dict(best_configs, orient='index')
-        
     def visualize(self):
         """Visualize ASGC results as a heatmap of test accuracy and link prediction vs k and reg for each dimension."""
         if self.df.empty:
@@ -882,11 +861,17 @@ class FusionAnalyzer(AbstractAnalyzer):
         if "lp_hard/auc" in plot_df.columns:
             metrics.append("lp_hard/auc")
             
-        # Create a subplot for each metric
+        # Create a subplot for each metric - make individual heatmaps skinnier
         n_metrics = len(metrics)
+        
+        # Calculate dimensions to make skinnier heatmaps
+        single_width = 3.5  # Reduced width for each heatmap
+        single_height = 5.0  # Taller height to maintain proportions
+        
+        # Create figure with adjusted dimensions
         fig, axes = plt.subplots(1, n_metrics, 
-                               figsize=(figsize[0] * n_metrics if figsize else self.figsize[0] * n_metrics, 
-                                       figsize[1] if figsize else self.figsize[1]),
+                               figsize=(single_width * n_metrics, 
+                                       figsize[1] if figsize else single_height),
                                squeeze=False)
         
         # Create heatmap for each metric
@@ -899,19 +884,18 @@ class FusionAnalyzer(AbstractAnalyzer):
                     plot_df.groupby([x_axis, y_axis])
                     .agg({metric: "mean"})
                     .reset_index()
-                    .pivot(index=y_axis, columns=x_axis, values=metric)
+                    .pivot(index=x_axis, columns=y_axis, values=metric)
                 )
                 
-                # Create heatmap
-                colormap = self.cmap if metric == "acc/test" else "RdYlGn" if "lp" in metric else self.cmap
-                sns.heatmap(pivot_data, cmap=colormap, annot=True, fmt=".3f", ax=ax)
+                # Create heatmap - using the same colormap (self.cmap) for all metrics
+                sns.heatmap(pivot_data, cmap=self.cmap, annot=True, fmt=".3f", ax=ax)
                 
                 # Set title and labels
                 metric_name = metric.replace('/', ' ').replace('_', ' ').title()
                 ax.set_title(f"{self.experiment_type}: {metric_name}")
-                ax.set_xlabel(x_axis.replace('_', ' ').title())
+                ax.set_xlabel(y_axis.replace('_', ' ').title())
                 if i == 0:
-                    ax.set_ylabel(y_axis.replace('_', ' ').title())
+                    ax.set_ylabel(x_axis.replace('_', ' ').title())
                 else:
                     ax.set_ylabel('')  # Only show y-label on first subplot
             
@@ -932,15 +916,72 @@ class FusionAnalyzer(AbstractAnalyzer):
         if filter_params:
             filename += "_" + "_".join([f"{k}-{v}" for k, v in filter_params.items()])
         
+        # Adjust spacing between subplots
         plt.tight_layout()
+        fig.subplots_adjust(wspace=0.4)  # Add more horizontal space between heatmaps
+        
         return self.save_and_return(fig, filename)
 
+    def visualize_dimension_impact(self):
+        """
+        Visualize the impact of different dimensions on model performance.
+        
+        Returns:
+            matplotlib figure showing performance variation across dimensions
+        """
+        if self.df.empty:
+            print("No data to visualize dimensions impact.")
+            return plt.figure()
+            
+        fig, axes = plt.subplots(2, 2, figsize=(15, 12), squeeze=False)
+        
+        # Plot 1: Impact of latent dimension on test accuracy
+        if 'latent_dim' in self.df.columns:
+            ax1 = axes[0, 0]
+            sns.boxplot(x='latent_dim', y='acc/test', data=self.df, ax=ax1)
+            ax1.set_title(f'{self.experiment_type}: Test Accuracy by Latent Dimension')
+            ax1.set_xlabel('Latent Dimension')
+            ax1.set_ylabel('Test Accuracy')
+            
+        # Plot 2: Impact of textual dimension on test accuracy
+        if 'textual_dim' in self.df.columns:
+            ax2 = axes[0, 1]
+            sns.boxplot(x='textual_dim', y='acc/test', data=self.df, ax=ax2)
+            ax2.set_title(f'{self.experiment_type}: Test Accuracy by Textual Dimension')
+            ax2.set_xlabel('Textual Dimension')
+            ax2.set_ylabel('Test Accuracy')
+            
+        # Plot 3: Impact of relational dimension on test accuracy
+        if 'relational_dim' in self.df.columns:
+            ax3 = axes[1, 0]
+            sns.boxplot(x='relational_dim', y='acc/test', data=self.df, ax=ax3)
+            ax3.set_title(f'{self.experiment_type}: Test Accuracy by Relational Dimension')
+            ax3.set_xlabel('Relational Dimension')
+            ax3.set_ylabel('Test Accuracy')
+            
+        # Plot 4: Interaction between textual and relational dimensions
+        if 'textual_dim' in self.df.columns and 'relational_dim' in self.df.columns:
+            ax4 = axes[1, 1]
+            dim_metrics = self.df.groupby(['textual_dim', 'relational_dim'])['acc/test'].mean().reset_index()
+            pivot_data = dim_metrics.pivot(index='relational_dim', columns='textual_dim', values='acc/test')
+            sns.heatmap(pivot_data, annot=True, fmt=".3f", cmap=self.cmap, ax=ax4)
+            ax4.set_title(f'{self.experiment_type}: Accuracy by Dimension Interaction')
+            ax4.set_xlabel('Textual Dimension')
+            ax4.set_ylabel('Relational Dimension')
+            
+        plt.tight_layout()
+        return self.save_and_return(fig, "dimension_impact")
+            
     def run(self):
         """Run all available visualizations for fusion analysis."""
         results = super().run()
         
-        # Add any fusion-specific visualizations (currently just using the base implementation)
-        # Can be extended with additional visualizations in the future
+        # Add dimension impact visualization
+        try:
+            results["dimension_impact"] = self.visualize_dimension_impact()
+            print("Dimension impact visualization created.")
+        except Exception as e:
+            print(f"Error creating dimension impact visualization: {e}")
         
         return results
 
@@ -949,7 +990,7 @@ class AdditionFusionAnalyzer(FusionAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
                  remove_outliers=False, outlier_params=None):
         super().__init__("AdditionFusion", dpi, cmap, figsize, 
-                        remove_outliers=remove_outliers, outlier_params=outlier_params)
+                         remove_outliers=remove_outliers, outlier_params=outlier_params)
 
     def run(self):
         """Run all available visualizations for addition fusion analysis."""
@@ -960,7 +1001,7 @@ class EarlyFusionAnalyzer(FusionAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
                  remove_outliers=False, outlier_params=None):
         super().__init__("EarlyFusion", dpi, cmap, figsize, 
-                        remove_outliers=remove_outliers, outlier_params=outlier_params)
+                         remove_outliers=remove_outliers, outlier_params=outlier_params)
 
     def run(self):
         """Run all available visualizations for early fusion analysis."""
@@ -971,7 +1012,7 @@ class GatedFusionAnalyzer(FusionAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
                  remove_outliers=False, outlier_params=None):
         super().__init__("GatedFusion", dpi, cmap, figsize, 
-                        remove_outliers=remove_outliers, outlier_params=outlier_params)
+                         remove_outliers=remove_outliers, outlier_params=outlier_params)
 
     def analyze_gate_scores(self):
         """Analyze the distribution of gate scores."""
@@ -1009,7 +1050,7 @@ class LowRankFusionAnalyzer(FusionAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
                  remove_outliers=False, outlier_params=None):
         super().__init__("LowRankFusion", dpi, cmap, figsize, 
-                        remove_outliers=remove_outliers, outlier_params=outlier_params)
+                         remove_outliers=remove_outliers, outlier_params=outlier_params)
     def post_process(self):
         self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim", "rank"]] = self.df.prefix.str.split(
             "[/_]"
@@ -1021,8 +1062,6 @@ class LowRankFusionAnalyzer(FusionAnalyzer):
             print("No data to analyze.")
             return None
 
-        # Extract rank from path
-        self.df["rank"] = self.df["path"].str.extract(r"/\d+_\d+/(\d+)").astype(int)
 
         # Basic analysis from parent
         basic_analysis = super().analyze()
@@ -1042,35 +1081,11 @@ class LowRankFusionAnalyzer(FusionAnalyzer):
 
         return {"basic_analysis": basic_analysis, "rank_analysis": rank_analysis}
 
-    def visualize_rank_impact(self):
-        """Visualize the impact of rank on model performance."""
-        if self.df.empty:
-            print("No data to visualize.")
-            return plt.figure()
-
-        # Extract rank if not already done
-        # if "rank" not in self.df.columns:
-        #     self.df["rank"] = self.df["path"].str.extract(r"/\d+_\d+/(\d+)").astype(int)
-
-        fig, ax = plt.subplots(figsize=(10, 6))
-        sns.boxplot(x="rank", y="acc/test", hue="latent_dim", data=self.df, ax=ax)
-        ax.set_title("Low Rank Fusion: Test Accuracy by Rank")
-        ax.set_xlabel("Rank")
-        ax.set_ylabel("Test Accuracy")
-        ax.legend(title="Latent Dim")
-
-        return self.save_and_return(fig, "rank_impact")
-
     def run(self):
         """Run all available visualizations for low rank fusion analysis."""
         results = super().run()
         
-        try:
-            results["rank_impact"] = self.visualize_rank_impact()
-            print("Rank impact visualization created.")
-        except Exception as e:
-            print(f"Error creating rank impact visualization: {e}")
-            
+
         return results
 
 
@@ -1078,7 +1093,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
                  remove_outliers=False, outlier_params=None):
         super().__init__("TransformerFusion", dpi, cmap, figsize, 
-                        remove_outliers=remove_outliers, outlier_params=outlier_params)
+                         remove_outliers=remove_outliers, outlier_params=outlier_params)
     def post_process(self):
         self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim", "num_layers", "nhead", "output_modality"]] = self.df.prefix.str.split(
             "[/_]"
@@ -1383,6 +1398,148 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         plt.tight_layout()
         return self.save_and_return(fig, "metrics_comparison")
 
+    def visualize_fusion_heatmaps(self):
+        """
+        Create heatmap visualizations for each fusion method, comparing different textual and relational combinations.
+        
+        Returns:
+            dict: Dictionary containing the three figures for test accuracy, lp/auc and lp_hard/auc
+        """
+        if self.df.empty:
+            print("No data to visualize fusion heatmaps.")
+            return {}
+            
+        # Extract model type if not already done
+        if "model_type" not in self.df.columns:
+            self.df["model_type"] = self.df["path"].str.extract(r"/logs/([^/]+)/")
+            
+        # Extract textual and relational model names if not already done
+        if "textual_name" not in self.df.columns:
+            self.df["textual_name"] = self.df["path"].str.extract(r"/([^/]+)_[^/]+/\d+_\d+")
+            
+        if "relational_name" not in self.df.columns:
+            self.df["relational_name"] = self.df["path"].str.extract(r"/[^/]+_([^/]+)/\d+_\d+")
+            
+        # Check if required columns are available
+        required_cols = ["model_type", "textual_name", "relational_name"]
+        for col in required_cols:
+            if col not in self.df.columns or self.df[col].isnull().all():
+                print(f"Missing required column: {col}")
+                return {}
+                
+        # Filter out non-fusion models or rows with missing values
+        fusion_models = self.df.dropna(subset=required_cols)
+        if fusion_models.empty:
+            print("No fusion models found with complete data.")
+            return {}
+        
+        # Define metrics to visualize
+        metrics = ["acc/test"]
+        if "lp/auc" in fusion_models.columns:
+            metrics.append("lp/auc")
+        if "lp_hard/auc" in fusion_models.columns:
+            metrics.append("lp_hard/auc")
+            
+        # Create a figure for each metric
+        results = {}
+        
+        for metric in metrics:
+            # Skip if metric not available
+            if metric not in fusion_models.columns:
+                continue
+                
+            # Get unique fusion models, textual models, and relational models
+            unique_fusion_models = sorted(fusion_models["model_type"].unique())
+            unique_textual_models = sorted(fusion_models["textual_name"].unique())
+            unique_relational_models = sorted(fusion_models["relational_name"].unique())
+            
+            # Use a 2x2 grid for the 4 fusion methods
+            n_fusion_models = len(unique_fusion_models)
+            n_cols = 2  # Fixed 2 columns for 2x2 grid
+            n_rows = (n_fusion_models + 1) // 2  # This will give 2 rows for 3-4 methods
+            
+            # Create figure and subplots with appropriate size for 2x2 grid
+            fig_width = 10  # 5 per column x 2 columns
+            fig_height = 12  # 6 per row x 2 rows
+            fig, axes = plt.subplots(n_rows, n_cols, figsize=(fig_width, fig_height), squeeze=False)
+            
+            # Set title for entire figure
+            metric_name = metric.replace("/", " ").replace("_", " ").title()
+            fig.suptitle(f"Comparison of Fusion Methods: {metric_name}", fontsize=16, y=0.98)
+            
+            # Create a heatmap for each fusion model
+            for i, fusion_model in enumerate(unique_fusion_models):
+                # Calculate subplot position in 2x2 grid
+                row_idx = i // n_cols
+                col_idx = i % n_cols
+                ax = axes[row_idx, col_idx]
+                
+                # Filter data for this fusion model
+                model_data = fusion_models[fusion_models["model_type"] == fusion_model]
+                
+                # Create pivot table for the heatmap
+                try:
+                    # Group by textual and relational model and calculate mean of the metric
+                    pivot_data = (
+                        model_data.groupby(["textual_name", "relational_name"])
+                        .agg({metric: "mean"})
+                        .reset_index()
+                        .pivot(index="textual_name", columns="relational_name", values=metric)
+                    )
+                    
+                    # Ensure all combinations have a value (even if not present in the data)
+                    for tx in unique_textual_models:
+                        if tx not in pivot_data.index:
+                            pivot_data.loc[tx] = np.nan
+                    for rel in unique_relational_models:
+                        if rel not in pivot_data.columns:
+                            pivot_data[rel] = np.nan
+                            
+                    # Sort rows and columns for consistent ordering
+                    pivot_data = pivot_data.loc[sorted(pivot_data.index), sorted(pivot_data.columns)]
+                    
+                    # Create heatmap
+                    sns.heatmap(pivot_data, cmap=self.cmap, annot=True, fmt=".3f", ax=ax,
+                                linewidths=.5, cbar=False)
+                    
+                    # Set title and labels
+                    ax.set_title(f"{fusion_model}")
+                    ax.set_xlabel("Relational Model")
+                    ax.set_ylabel("Textual Model")
+                    
+                    # Rotate x-axis labels for better readability
+                    plt.setp(ax.get_xticklabels(), rotation=45, ha="right")
+                    
+                except Exception as e:
+                    # Handle case where pivot fails (e.g., no data for this combination)
+                    ax.text(0.5, 0.5, f"No data available for\n{fusion_model}\n{e}",
+                           ha="center", va="center", transform=ax.transAxes)
+                    ax.set_xticks([])
+                    ax.set_yticks([])
+            
+            # Hide unused subplots
+            for i in range(n_fusion_models, n_rows * n_cols):
+                row_idx = i // n_cols
+                col_idx = i % n_cols
+                axes[row_idx, col_idx].axis('off')
+            
+            # Add a colorbar at the bottom spanning all subplots
+            cbar_ax = fig.add_axes([0.15, 0.05, 0.7, 0.02])  # [left, bottom, width, height]
+            vmin = fusion_models[metric].min()
+            vmax = fusion_models[metric].max()
+            sm = plt.cm.ScalarMappable(cmap=self.cmap, norm=plt.Normalize(vmin=vmin, vmax=vmax))
+            sm.set_array([])
+            cbar = fig.colorbar(sm, cax=cbar_ax, orientation='horizontal')
+            cbar.set_label(metric_name)
+            
+            # Adjust layout
+            plt.tight_layout(rect=[0, 0.07, 1, 0.96])  # [left, bottom, right, top]
+            
+            # Save figure
+            results[metric] = self.save_and_return(fig, f"fusion_heatmap_{metric.replace('/', '_')}")
+            
+        return results
+        
     def run(self):
         """Run all available visualizations for cross-model analysis."""
         results = super().run()
@@ -1398,6 +1555,16 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             print("Metrics comparison visualization created.")
         except Exception as e:
             print(f"Error creating metrics comparison: {e}")
+            
+        # Add the new fusion heatmap visualizations
+        try:
+            fusion_heatmaps = self.visualize_fusion_heatmaps()
+            for metric, fig in fusion_heatmaps.items():
+                results[f"fusion_heatmap_{metric}"] = fig
+            if fusion_heatmaps:
+                print("Fusion heatmap visualizations created.")
+        except Exception as e:
+            print(f"Error creating fusion heatmap visualizations: {e}")
             
         return results
 
@@ -1626,13 +1793,20 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
         
         # Group by model and embedding dimension
         try:
+            # Add lp_hard/auc to the aggregation if it exists
+            agg_dict = {
+                "acc/valid": ["mean", "std"],
+                "acc/test": ["mean", "std"],
+                "lp/auc": ["mean", "std"]
+            }
+            
+            # Include hard link prediction if available
+            if "lp_hard/auc" in self.df.columns:
+                agg_dict["lp_hard/auc"] = ["mean", "std"]
+                
             result = (
                 self.df.groupby(["model", "embedding_dim"])
-                .agg({
-                    "acc/valid": ["mean", "std"],
-                    "acc/test": ["mean", "std"],
-                    "lp/auc": ["mean", "std"]
-                })
+                .agg(agg_dict)
                 .reset_index()
             )
             
@@ -1644,7 +1818,7 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
             return self.df
     
     def visualize(self):
-        """Create a scatter plot with lines comparing both test accuracy and link prediction in the same figure."""
+        """Create a scatter plot with lines comparing test accuracy and link prediction metrics."""
         if self.df.empty:
             print("No data to visualize.")
             return plt.figure()
@@ -1665,6 +1839,11 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
         test_accuracies = [plot_data[plot_data['model'] == model]['acc/test'].mean() for model in models]
         lp_aucs = [plot_data[plot_data['model'] == model]['lp/auc'].mean() for model in models]
         
+        # Check if hard link prediction data is available
+        has_hard_lp = 'lp_hard/auc' in self.df.columns
+        if has_hard_lp:
+            lp_hard_aucs = [plot_data[plot_data['model'] == model]['lp_hard/auc'].mean() for model in models]
+        
         # Create a second y-axis for link prediction
         ax2 = ax.twinx()
         
@@ -1673,10 +1852,16 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
         ax.scatter(x_positions, test_accuracies, s=120, color='#1f77b4', 
                   edgecolor='white', linewidth=2, zorder=5)
         
-        # Plot link prediction on right y-axis
+        # Plot standard link prediction on right y-axis
         line2, = ax2.plot(x_positions, lp_aucs, '-', color='#ff7f0e', linewidth=2, alpha=0.8, label='LP AUC')
         ax2.scatter(x_positions, lp_aucs, s=120, color='#ff7f0e', 
-                   edgecolor='white', linewidth=2, marker='s', zorder=5)  # Use square markers to differentiate
+                   edgecolor='white', linewidth=2, marker='s', zorder=5)
+                   
+        # Plot hard link prediction if available
+        if has_hard_lp:
+            line3, = ax2.plot(x_positions, lp_hard_aucs, '-', color='#2ca02c', linewidth=2, alpha=0.8, label='Hard LP AUC')
+            ax2.scatter(x_positions, lp_hard_aucs, s=120, color='#2ca02c', 
+                       edgecolor='white', linewidth=2, marker='^', zorder=5)
         
         # Add value labels for test accuracy (above)
         for x, y, model in zip(x_positions, test_accuracies, models):
@@ -1705,7 +1890,7 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
                     alpha=0.7
                 )
         
-        # Add value labels for link prediction (below)
+        # Add value labels for standard link prediction
         for x, y in zip(x_positions, lp_aucs):
             ax2.annotate(
                 f'{y:.3f}',
@@ -1717,6 +1902,20 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
                 color='#ff7f0e',
                 fontweight='bold'
             )
+            
+        # Add value labels for hard link prediction if available
+        if has_hard_lp:
+            for x, y in zip(x_positions, lp_hard_aucs):
+                ax2.annotate(
+                    f'{y:.3f}',
+                    (x, y),
+                    xytext=(0, -35),  # 35 points below (further down than standard LP)
+                    textcoords='offset points',
+                    ha='center',
+                    fontsize=9,
+                    color='#2ca02c',
+                    fontweight='bold'
+                )
         
         # Set labels and title
         ax.set_title('Textual Embeddings Performance Comparison', fontsize=14)
@@ -1734,14 +1933,22 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
         
         # Set appropriate y-axis limits with padding
         ax.set_ylim(max(0, min(test_accuracies) - 0.03), min(1, max(test_accuracies) + 0.03))
-        ax2.set_ylim(max(0, min(lp_aucs) - 0.03), min(1, max(lp_aucs) + 0.03))
+        
+        # Calculate min and max for link prediction y-axis
+        lp_values = lp_aucs
+        if has_hard_lp:
+            lp_values = lp_values + lp_hard_aucs
+        ax2.set_ylim(max(0, min(lp_values) - 0.03), min(1, max(lp_values) + 0.03))
         
         # Add grid lines for better readability (only for the left y-axis)
         ax.grid(axis='y', linestyle='--', alpha=0.3)
         
-        # Add combined legend
+        # Add combined legend with all available metrics
         lines = [line1, line2]
-        labels = [line.get_label() for line in lines]
+        labels = [line1.get_label(), line2.get_label()]
+        if has_hard_lp:
+            lines.append(line3)
+            labels.append(line3.get_label())
         ax.legend(lines, labels, loc='upper right', frameon=True, framealpha=0.9)
         
         plt.tight_layout()
@@ -1753,12 +1960,17 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
             print("No data to visualize.")
             return plt.figure()
         
+        # Determine which metrics to include
+        metrics = ['acc/valid', 'acc/test', 'lp/auc']
+        if 'lp_hard/auc' in self.df.columns:
+            metrics.append('lp_hard/auc')
+        
         # Melt the DataFrame to create a long format for grouped bars
         plot_data = self.df.copy()
         metrics_data = pd.melt(
             plot_data,
             id_vars=['model', 'embedding_dim'],
-            value_vars=['acc/valid', 'acc/test', 'lp/auc'],
+            value_vars=metrics,
             var_name='metric', 
             value_name='score'
         )
@@ -1883,8 +2095,6 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
 # analyzer = GatedFusionAnalyzer()
 # analyzer.run()
 # analyzer = LowRankFusionAnalyzer()
-# results = analyzer.run()
-
-analyzer = CrossModelAnalyzer()
-analyzer.visualize_outliers()
 # analyzer.run()
+analyzer = CrossModelAnalyzer()
+analyzer.run()
