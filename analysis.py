@@ -607,7 +607,7 @@ class FusionAnalyzer(AbstractAnalyzer):
 
     def visualize(self, x_axis='textual_name', y_axis='relational_name', filter_params=None, figsize=None):
         """
-        Create a heatmap visualization with configurable x and y axes.
+        Create heatmap visualizations with configurable x and y axes for all available metrics.
         
         Args:
             x_axis: Parameter to use for the x-axis
@@ -616,7 +616,7 @@ class FusionAnalyzer(AbstractAnalyzer):
             figsize: Custom figure size, defaults to self.figsize if None
             
         Returns:
-            matplotlib figure
+            matplotlib figure with heatmaps for test accuracy and link prediction metrics
         """
         if self.df.empty:
             print("No data to visualize.")
@@ -631,35 +631,65 @@ class FusionAnalyzer(AbstractAnalyzer):
         if plot_df.empty:
             print("No data matches the filter parameters.")
             return plt.figure()
+        
+        # Determine which metrics are available
+        metrics = ["acc/test"]
+        if "lp/auc" in plot_df.columns:
+            metrics.append("lp/auc")
+        if "lp_hard/auc" in plot_df.columns:
+            metrics.append("lp_hard/auc")
             
-        # Create pivot table for heatmap
-        pivot_data = (
-            plot_df.groupby([x_axis, y_axis])
-            .agg({"acc/test": "mean"})
-            .reset_index()
-            .pivot(index=y_axis, columns=x_axis, values="acc/test")
-        )
+        # Create a subplot for each metric
+        n_metrics = len(metrics)
+        fig, axes = plt.subplots(1, n_metrics, 
+                               figsize=(figsize[0] * n_metrics if figsize else self.figsize[0] * n_metrics, 
+                                       figsize[1] if figsize else self.figsize[1]),
+                               squeeze=False)
         
-        # Create figure
-        fig, ax = plt.subplots(figsize=figsize or self.figsize)
+        # Create heatmap for each metric
+        for i, metric in enumerate(metrics):
+            ax = axes[0, i]
+            
+            # Create pivot table for this metric
+            try:
+                pivot_data = (
+                    plot_df.groupby([x_axis, y_axis])
+                    .agg({metric: "mean"})
+                    .reset_index()
+                    .pivot(index=y_axis, columns=x_axis, values=metric)
+                )
+                
+                # Create heatmap
+                colormap = self.cmap if metric == "acc/test" else "RdYlGn" if "lp" in metric else self.cmap
+                sns.heatmap(pivot_data, cmap=colormap, annot=True, fmt=".3f", ax=ax)
+                
+                # Set title and labels
+                metric_name = metric.replace('/', ' ').replace('_', ' ').title()
+                ax.set_title(f"{self.experiment_type}: {metric_name}")
+                ax.set_xlabel(x_axis.replace('_', ' ').title())
+                if i == 0:
+                    ax.set_ylabel(y_axis.replace('_', ' ').title())
+                else:
+                    ax.set_ylabel('')  # Only show y-label on first subplot
+            
+            except Exception as e:
+                ax.text(0.5, 0.5, f"Could not create heatmap\nfor {metric}\n{str(e)}", 
+                       ha='center', va='center', transform=ax.transAxes)
+                ax.set_xticks([])
+                ax.set_yticks([])
         
-        # Create heatmap
-        sns.heatmap(pivot_data, cmap=self.cmap, annot=True, fmt=".3f", ax=ax)
-        
-        # Set title and labels
-        filter_str = ", ".join([f"{k}={v}" for k, v in (filter_params or {}).items()])
-        title = f"{self.experiment_type}: Test Accuracy"
-        if filter_str:
-            title += f" ({filter_str})"
-        ax.set_title(title)
-        ax.set_xlabel(x_axis.replace('_', ' ').title())
-        ax.set_ylabel(y_axis.replace('_', ' ').title())
+        # Add common title if filter parameters are provided
+        if filter_params:
+            filter_str = ", ".join([f"{k}={v}" for k, v in filter_params.items()])
+            plt.suptitle(f"{self.experiment_type} Performance ({filter_str})", fontsize=14, y=0.98)
+            plt.subplots_adjust(top=0.85)  # Make room for the suptitle
         
         # Create filename from parameters
         filename = f"{self.experiment_type}_{x_axis}_vs_{y_axis}"
         if filter_params:
             filename += "_" + "_".join([f"{k}-{v}" for k, v in filter_params.items()])
-            
+        
+        plt.tight_layout()
         return self.save_and_return(fig, filename)
 
     def run(self):
@@ -716,42 +746,12 @@ class GatedFusionAnalyzer(FusionAnalyzer):
 
         return pd.DataFrame(gate_scores) if gate_scores else pd.DataFrame()
 
-    def visualize_gate_distribution(self, num_samples=5):
-        """Visualize the distribution of gate scores for a few samples."""
-        gate_data = self.analyze_gate_scores()
-        if gate_data.empty:
-            print("No gate score data available.")
-            return plt.figure()
-
-        # Sample a few experiments
-        if len(gate_data) > num_samples:
-            gate_data = gate_data.sample(num_samples, random_state=42)
-
-        fig, axes = plt.subplots(
-            len(gate_data), 1, figsize=(10, 4 * len(gate_data)), squeeze=False
-        )
-
-        for i, (_, row) in enumerate(gate_data.iterrows()):
-            ax = axes[i, 0]
-            sns.histplot(row["scores"], ax=ax, bins=50, kde=True)
-            ax.set_title(f"Gate Score Distribution: {Path(row['path']).name}")
-            ax.set_xlabel("Gate Score")
-            ax.set_ylabel("Count")
-            ax.axvline(x=0.5, color="r", linestyle="--", label="Equal weight")
-            ax.legend()
-
-        plt.tight_layout()
-        return self.save_and_return(fig, f"gate_distribution_n{num_samples}")
 
     def run(self):
         """Run all available visualizations for gated fusion analysis."""
         results = super().run()
         
-        try:
-            results["gate_distribution"] = self.visualize_gate_distribution()
-            print("Gate distribution visualization created.")
-        except Exception as e:
-            print(f"Error creating gate distribution visualization: {e}")
+
             
         return results
 
@@ -760,7 +760,7 @@ class LowRankFusionAnalyzer(FusionAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
         super().__init__("LowRankFusion", dpi, cmap, figsize)
     def post_process(self):
-        self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "rank"]] = self.df.prefix.str.split(
+        self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim", "rank"]] = self.df.prefix.str.split(
             "[/_]"
         ).tolist()
         self.df = self.df.drop(columns=["prefix"])
@@ -826,7 +826,11 @@ class LowRankFusionAnalyzer(FusionAnalyzer):
 class TransformerFusionAnalyzer(FusionAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
         super().__init__("TransformerFusion", dpi, cmap, figsize)
-
+    # def post_process(self):
+    #     self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim", ""]] = self.df.prefix.str.split(
+    #         "[/_]"
+    #     ).tolist()
+        self.df = self.df.drop(columns=["prefix"])
     def analyze(self):
         """Analyze with additional focus on transformer-specific parameters."""
         if self.df.empty:
@@ -1074,7 +1078,8 @@ class Node2VecAnalyzer(AbstractAnalyzer):
             .agg({
                 "acc/val": ["mean", "std", "min", "max"],
                 "acc/test": ["mean", "std", "min", "max"],
-                "lp/auc": ["mean", "std", "min", "max"],  # Added link prediction metric
+                "lp/auc": ["mean", "std", "min", "max"],
+                "lp_hard/auc": ["mean", "std", "min", "max"],  # Added hard link prediction metric
             })
             .reset_index()
         )
@@ -1089,8 +1094,8 @@ class Node2VecAnalyzer(AbstractAnalyzer):
             print("No data to visualize.")
             return plt.figure()
         
-        # Create two subplots - one for node classification, one for link prediction
-        fig, axes = plt.subplots(1, 2, figsize=(self.figsize[0]*2, self.figsize[1]), squeeze=False)
+        # Create three subplots - one for node classification, two for link prediction
+        fig, axes = plt.subplots(1, 3, figsize=(self.figsize[0]*3, self.figsize[1]), squeeze=False)
         
         # Plot 1: Node classification (test accuracy) by dimension
         sns.boxplot(x="dim", y="acc/test", data=self.df, ax=axes[0, 0])
@@ -1098,7 +1103,7 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         axes[0, 0].set_xlabel("Embedding Dimension")
         axes[0, 0].set_ylabel("Test Accuracy")
         
-        # Plot 2: Link prediction by dimension
+        # Plot 2: Standard link prediction by dimension
         if "lp/auc" in self.df.columns:
             sns.boxplot(x="dim", y="lp/auc", data=self.df, ax=axes[0, 1])
             axes[0, 1].set_title("Link Prediction AUC by Dimension")
@@ -1109,30 +1114,55 @@ class Node2VecAnalyzer(AbstractAnalyzer):
                           ha='center', va='center', transform=axes[0, 1].transAxes)
             axes[0, 1].set_xticks([])
             axes[0, 1].set_yticks([])
+            
+        # Plot 3: Hard link prediction by dimension
+        if "lp_hard/auc" in self.df.columns:
+            sns.boxplot(x="dim", y="lp_hard/auc", data=self.df, ax=axes[0, 2])
+            axes[0, 2].set_title("Hard Link Prediction AUC by Dimension")
+            axes[0, 2].set_xlabel("Embedding Dimension")
+            axes[0, 2].set_ylabel("AUC")
+        else:
+            axes[0, 2].text(0.5, 0.5, "Hard link prediction data not available", 
+                          ha='center', va='center', transform=axes[0, 2].transAxes)
+            axes[0, 2].set_xticks([])
+            axes[0, 2].set_yticks([])
         
         plt.tight_layout()
         return self.save_and_return(fig, "performance_by_dimension")
     
     def visualize_task_comparison(self):
         """Compare node classification and link prediction performance."""
-        if self.df.empty or "lp/auc" not in self.df.columns:
+        if self.df.empty:
             print("No data for task comparison.")
             return plt.figure()
         
         fig, ax = plt.subplots(figsize=self.figsize)
         
         # Calculate average metrics by dimension
-        dim_metrics = self.df.groupby('dim').agg({
-            'acc/test': 'mean', 
-            'lp/auc': 'mean'
-        }).reset_index()
+        agg_metrics = ['acc/test']
+        if 'lp/auc' in self.df.columns:
+            agg_metrics.append('lp/auc')
+        if 'lp_hard/auc' in self.df.columns:
+            agg_metrics.append('lp_hard/auc')
+            
+        dim_metrics = self.df.groupby('dim')[agg_metrics].mean().reset_index()
         
         # Plot comparison
-        width = 0.35
         x = np.arange(len(dim_metrics))
+        width = 0.8 / len(agg_metrics)  # Adjust bar width based on number of metrics
         
-        ax.bar(x - width/2, dim_metrics['acc/test'], width, label='Node Classification', color='#1f77b4')
-        ax.bar(x + width/2, dim_metrics['lp/auc'], width, label='Link Prediction', color='#ff7f0e')
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c']  # Blue, orange, green
+        labels = ['Node Classification', 'Link Prediction', 'Hard Link Prediction']
+        
+        for i, metric in enumerate(agg_metrics):
+            pos = x + width * (i - (len(agg_metrics) - 1) / 2)
+            bars = ax.bar(pos, dim_metrics[metric], width, label=labels[i], color=colors[i])
+            
+            # Add value labels on bars
+            for bar_idx, bar in enumerate(bars):
+                height = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                       f'{height:.3f}', ha='center', va='bottom', fontsize=8, color=colors[i])
         
         ax.set_xlabel('Embedding Dimension')
         ax.set_ylabel('Performance')
@@ -1141,34 +1171,43 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         ax.set_xticklabels(dim_metrics['dim'])
         ax.legend()
         
-        # Add value labels on bars
-        for i, v in enumerate(dim_metrics['acc/test']):
-            ax.text(i - width/2, v + 0.01, f'{v:.3f}', 
-                    ha='center', va='bottom', fontsize=8, color='#1f77b4')
-            
-        for i, v in enumerate(dim_metrics['lp/auc']):
-            ax.text(i + width/2, v + 0.01, f'{v:.3f}', 
-                    ha='center', va='bottom', fontsize=8, color='#ff7f0e')
-        
         plt.tight_layout()
         return self.save_and_return(fig, "task_comparison")
     
+    def visualize_lp_comparison(self):
+        """Compare standard and hard link prediction performance."""
+        if self.df.empty or 'lp/auc' not in self.df.columns or 'lp_hard/auc' not in self.df.columns:
+            print("No data for link prediction comparison.")
+            return plt.figure()
+        
+        fig, ax = plt.subplots(figsize=self.figsize)
+        
+        # Calculate average metrics by dimension
+        dim_metrics = self.df.groupby('dim')[['lp/auc', 'lp_hard/auc']].mean().reset_index()
+        
+        # Create line plot with markers
+        ax.plot(dim_metrics['dim'], dim_metrics['lp/auc'], 'o-', label='Standard LP', linewidth=2, color='#ff7f0e')
+        ax.plot(dim_metrics['dim'], dim_metrics['lp_hard/auc'], 's-', label='Hard LP', linewidth=2, color='#2ca02c')
+        
+        # Add value labels
+        for i, row in dim_metrics.iterrows():
+            ax.text(row['dim'], row['lp/auc'] + 0.01, f'{row["lp/auc"]:.3f}', 
+                   ha='center', fontsize=9, color='#ff7f0e')
+            ax.text(row['dim'], row['lp_hard/auc'] - 0.02, f'{row["lp_hard/auc"]:.3f}', 
+                   ha='center', fontsize=9, color='#2ca02c')
+        
+        ax.set_xlabel('Embedding Dimension')
+        ax.set_ylabel('AUC Score')
+        ax.set_title('Comparison of Standard vs Hard Link Prediction')
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        
+        plt.tight_layout()
+        return self.save_and_return(fig, "lp_comparison")
+        
     def find_best_dimension(self, metric="acc/test"):
         """Find the best performing dimension for specified metric."""
-        if self.df.empty:
-            print("No data to analyze.")
-            return None
-        
-        # Group by dimension and find average performance
-        dim_performance = self.df.groupby('dim')[metric].agg(['mean', 'std']).reset_index()
-        
-        # Find the best dimension
-        best_idx = dim_performance['mean'].idxmax()
-        best_dim = dim_performance.loc[best_idx]
-        
-        print(f"Best dimension for {metric}: {best_dim['dim']} with {best_dim['mean']:.4f} ± {best_dim['std']:.4f}")
-        
-        return best_dim
+        # ...existing code...
     
     def run(self):
         """Run all available visualizations for Node2Vec analysis."""
@@ -1191,8 +1230,15 @@ class Node2VecAnalyzer(AbstractAnalyzer):
             print("Task performance comparison created.")
         except Exception as e:
             print(f"Error creating task performance comparison: {e}")
+            
+        try:
+            results["lp_comparison"] = self.visualize_lp_comparison()
+            print("Link prediction comparison created.")
+        except Exception as e:
+            print(f"Error creating link prediction comparison: {e}")
         
         return results
+
 
 class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
     """Analyzer for textual embeddings evaluation results."""
@@ -1475,10 +1521,15 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
 # analyzer.run()
 # analyzer = TextualEmbeddingsAnalyzer()
 # analyzer.run()
-analyzer = Node2VecAnalyzer()
-analyzer.run()
+# analyzer = Node2VecAnalyzer()
+# analyzer.run()
+# analyzer = EarlyFusionAnalyzer()
+# analyzer.run()
+# analyzer = GatedFusionAnalyzer()
+# analyzer.run()
+# analyzer = LowRankFusionAnalyzer()
+# results = analyzer.run()
+analyzer = TransformerFusionAnalyzer()
 
-
-
-
-
+# analyzer = CrossModelAnalyzer()
+# analyzer.run()

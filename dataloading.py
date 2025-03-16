@@ -372,3 +372,4 @@ def idx2cat(idx: list[int]):
     )
     catmapping = pd.read_csv(path, index_col="label idx")
     return catmapping.loc[idx].values.flatten()
+

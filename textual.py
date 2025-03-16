@@ -82,14 +82,7 @@ class TextualDriver(DriverBase):
             embeddings = self.get_node_embeddings()
             
             # Set up evaluator with CPU tensors
-            self.evaluator = NodeEmbeddingEvaluator(
-                self.graph.ndata["label"].cpu(),
-                {
-                    "train": self.graph.ndata["train_mask"].cpu(),
-                    "valid": self.graph.ndata["val_mask"].cpu(),
-                    "test": self.graph.ndata["test_mask"].cpu()
-                }
-            )
+            self.evaluator = OGBNArxivDataset.evaluator()
             
             # Ensure graph is on CPU for link prediction
             cpu_graph = self.graph.to('cpu') if self.graph.device != torch.device('cpu') else self.graph

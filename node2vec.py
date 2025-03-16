@@ -57,14 +57,7 @@ class Node2VecLightning(L.LightningModule):
         )
 
         self.lr = lr
-        self.evaluator = NodeEmbeddingEvaluator(
-            self.labels,
-            {
-                "train": self.graph.ndata["train_mask"].type(torch.bool),
-                "val": self.graph.ndata["val_mask"].type(torch.bool),
-                "test": self.graph.ndata["test_mask"].type(torch.bool),
-            },
-        )
+        self.evaluator = OGBNArxivDataset.evaluator()
 
     def configure_optimizers(self):
         return torch.optim.SparseAdam(self.word2vec.parameters(), lr=self.lr)

@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 logs/
 saved_embeddings/
+slurm-*.out
 
 # C extensions
 *.so

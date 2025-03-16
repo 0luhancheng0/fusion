@@ -8,7 +8,6 @@ import dgl.function as fn
 from jaxtyping import Float
 from torch import Tensor
 from base import DriverBase, ConfigBase
-from evaluation import NodeEmbeddingEvaluator
 
 import typer
 app = typer.Typer()
@@ -96,8 +95,9 @@ class ASGC:
         self.dataset = OGBNArxivDataset()
         
         self.graph = self.dataset.graph.to(self.device)
-        self.masks = {"train": self.graph.ndata["train_mask"], "valid": self.graph.ndata["val_mask"], "test": self.graph.ndata["test_mask"]}
-        self.evaluator = NodeEmbeddingEvaluator(self.graph.ndata["label"], self.masks)
+        # self.masks = {"train": self.graph.ndata["train_mask"], "valid": self.graph.ndata["val_mask"], "test": self.graph.ndata["test_mask"]}
+        # self.evaluator = NodeEmbeddingEvaluator(self.graph.ndata["label"], self.masks)
+        self.evaluator = OGBNArxivDataset.evaluator()
         self.embeddings = None
         
     def compute_coefficients(self, cache: Float[Tensor, "k n d"]):
