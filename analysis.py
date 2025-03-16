@@ -11,7 +11,7 @@ from abc import ABC, abstractmethod
 import os
 
 class AbstractAnalyzer(ABC):
-    def __init__(self, base_path, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
+    def __init__(self, base_path, dpi=300, cmap="viridis", figsize=(6.4, 4.8), remove_outliers=False, outlier_params=None):
         self.base_path = base_path
         self.dpi = dpi
         self.figsize = figsize
@@ -22,6 +22,10 @@ class AbstractAnalyzer(ABC):
 
         self.df = self._create_results_df()
         self.post_process()
+        
+        # Remove outliers if requested
+        if remove_outliers:
+            self.df = self.remove_outliers(**(outlier_params or {}))
 
     def _create_results_df(self):
         """Create a DataFrame from all results files found in the base path."""
@@ -134,10 +138,247 @@ class AbstractAnalyzer(ABC):
         
         return results
 
+    def remove_outliers(self, metrics=None, method='iqr', threshold=1.5, keep_filtered=False):
+        """
+        Remove outliers from the DataFrame based on specified metrics.
+        
+        Args:
+            metrics (list): List of metrics to check for outliers (e.g., ['acc/test', 'lp/auc']).
+                           If None, uses ['acc/test'] if available.
+            method (str): Method to detect outliers - 'iqr', 'zscore', or 'percentile'
+            threshold (float): Threshold for outlier detection:
+                              - For IQR: Values outside threshold*IQR from Q1/Q3
+                              - For z-score: Values more than threshold standard deviations from mean
+                              - For percentile: Values outside the threshold and (100-threshold) percentiles
+            keep_filtered (bool): If True, store filtered outliers in self.outliers_df
+            
+        Returns:
+            DataFrame: DataFrame with outliers removed
+        """
+        if self.df.empty:
+            print("No data to filter outliers from.")
+            return self.df
+            
+        # If no metrics specified, try to use acc/test
+        if metrics is None:
+            if 'acc/test' in self.df.columns:
+                metrics = ['acc/test']
+            else:
+                print("No metrics specified and 'acc/test' not found. Cannot filter outliers.")
+                return self.df
+        
+        # Make a copy of the original DataFrame
+        filtered_df = self.df.copy()
+        outliers_df = pd.DataFrame()
+        outlier_indices = set()
+        
+        # Process each metric
+        for metric in metrics:
+            if metric not in filtered_df.columns:
+                print(f"Metric '{metric}' not found in data. Skipping.")
+                continue
+                
+            # Select data points without NaN values for this metric
+            metric_data = filtered_df[~filtered_df[metric].isna()]
+            
+            # Apply the selected outlier detection method
+            if method.lower() == 'iqr':
+                # IQR method
+                Q1 = metric_data[metric].quantile(0.25)
+                Q3 = metric_data[metric].quantile(0.75)
+                IQR = Q3 - Q1
+                
+                lower_bound = Q1 - threshold * IQR
+                upper_bound = Q3 + threshold * IQR
+                
+                outliers = metric_data[(metric_data[metric] < lower_bound) | 
+                                      (metric_data[metric] > upper_bound)]
+                
+                print(f"IQR filtering on {metric}: Q1={Q1:.4f}, Q3={Q3:.4f}, IQR={IQR:.4f}")
+                print(f"Bounds: [{lower_bound:.4f}, {upper_bound:.4f}]")
+                
+            elif method.lower() == 'zscore':
+                # Z-score method
+                mean = metric_data[metric].mean()
+                std = metric_data[metric].std()
+                
+                # Identify outliers as points with absolute z-score > threshold
+                z_scores = abs((metric_data[metric] - mean) / std)
+                outliers = metric_data[z_scores > threshold]
+                
+                print(f"Z-score filtering on {metric}: mean={mean:.4f}, std={std:.4f}, threshold={threshold}")
+                
+            elif method.lower() == 'percentile':
+                # Percentile method
+                lower_bound = metric_data[metric].quantile(threshold / 100)
+                upper_bound = metric_data[metric].quantile(1 - threshold / 100)
+                
+                outliers = metric_data[(metric_data[metric] < lower_bound) | 
+                                      (metric_data[metric] > upper_bound)]
+                
+                print(f"Percentile filtering on {metric}: bounds=[{lower_bound:.4f}, {upper_bound:.4f}]")
+                
+            else:
+                print(f"Unknown outlier detection method: {method}. Using IQR method.")
+                # Default to IQR method
+                Q1 = metric_data[metric].quantile(0.25)
+                Q3 = metric_data[metric].quantile(0.75)
+                IQR = Q3 - Q1
+                
+                lower_bound = Q1 - threshold * IQR
+                upper_bound = Q3 + threshold * IQR
+                
+                outliers = metric_data[(metric_data[metric] < lower_bound) | 
+                                      (metric_data[metric] > upper_bound)]
+            
+            # Add to the set of outlier indices
+            outlier_indices.update(outliers.index)
+            
+            # Report the number of outliers found
+            print(f"Found {len(outliers)} outliers in '{metric}' using {method} method")
+        
+        # Remove all identified outliers and store them if requested
+        if outlier_indices:
+            if keep_filtered:
+                self.outliers_df = self.df.loc[list(outlier_indices)]
+                print(f"Stored {len(self.outliers_df)} outliers in self.outliers_df")
+                
+            # Remove outliers from the DataFrame
+            filtered_df = filtered_df.drop(index=list(outlier_indices))
+            print(f"Removed {len(outlier_indices)} total outliers across all metrics")
+            
+        return filtered_df
+        
+    def visualize_outliers(self, metrics=None, method='iqr', threshold=1.5):
+        """
+        Visualize data distribution with outliers highlighted.
+        
+        Args:
+            metrics (list): List of metrics to visualize (e.g., ['acc/test', 'lp/auc']).
+                          If None, uses ['acc/test'] if available.
+            method (str): Method to detect outliers - 'iqr', 'zscore', or 'percentile'
+            threshold (float): Threshold for outlier detection
+            
+        Returns:
+            matplotlib figure with boxplots or histograms showing outliers
+        """
+        if self.df.empty:
+            print("No data to visualize outliers for.")
+            return plt.figure()
+            
+        # If no metrics specified, try to use acc/test
+        if metrics is None:
+            if 'acc/test' in self.df.columns:
+                metrics = ['acc/test']
+            else:
+                print("No metrics specified and 'acc/test' not found.")
+                return plt.figure()
+                
+        # Create subplots for each metric
+        fig, axes = plt.subplots(len(metrics), 2, figsize=(12, 5*len(metrics)), squeeze=False)
+        
+        # For storing temporary outlier information
+        temp_df = self.df.copy()
+        
+        # Process each metric
+        for i, metric in enumerate(metrics):
+            if metric not in temp_df.columns:
+                print(f"Metric '{metric}' not found in data. Skipping.")
+                axes[i, 0].text(0.5, 0.5, f"Metric '{metric}' not found", 
+                              ha='center', va='center', transform=axes[i, 0].transAxes)
+                axes[i, 1].text(0.5, 0.5, f"Metric '{metric}' not found", 
+                              ha='center', va='center', transform=axes[i, 1].transAxes)
+                continue
+                
+            # Select data points without NaN values for this metric
+            metric_data = temp_df[~temp_df[metric].isna()]
+            
+            # Identify outliers based on the selected method
+            if method.lower() == 'iqr':
+                # IQR method
+                Q1 = metric_data[metric].quantile(0.25)
+                Q3 = metric_data[metric].quantile(0.75)
+                IQR = Q3 - Q1
+                
+                lower_bound = Q1 - threshold * IQR
+                upper_bound = Q3 + threshold * IQR
+                
+                temp_df[f'{metric}_outlier'] = ((temp_df[metric] < lower_bound) | 
+                                             (temp_df[metric] > upper_bound))
+                
+                title_info = f"IQR method (threshold={threshold})"
+                
+            elif method.lower() == 'zscore':
+                # Z-score method
+                mean = metric_data[metric].mean()
+                std = metric_data[metric].std()
+                
+                # Calculate z-scores
+                temp_df[f'{metric}_zscore'] = abs((temp_df[metric] - mean) / std)
+                temp_df[f'{metric}_outlier'] = temp_df[f'{metric}_zscore'] > threshold
+                
+                title_info = f"Z-score method (threshold={threshold})"
+                
+            elif method.lower() == 'percentile':
+                # Percentile method
+                lower_bound = metric_data[metric].quantile(threshold / 100)
+                upper_bound = metric_data[metric].quantile(1 - threshold / 100)
+                
+                temp_df[f'{metric}_outlier'] = ((temp_df[metric] < lower_bound) | 
+                                             (temp_df[metric] > upper_bound))
+                                             
+                title_info = f"Percentile method (threshold={threshold}%)"
+                
+            else:
+                print(f"Unknown outlier detection method: {method}. Using IQR method.")
+                # Default to IQR method
+                Q1 = metric_data[metric].quantile(0.25)
+                Q3 = metric_data[metric].quantile(0.75)
+                IQR = Q3 - Q1
+                
+                lower_bound = Q1 - threshold * IQR
+                upper_bound = Q3 + threshold * IQR
+                
+                temp_df[f'{metric}_outlier'] = ((temp_df[metric] < lower_bound) | 
+                                             (temp_df[metric] > upper_bound))
+                                             
+                title_info = f"IQR method (threshold={threshold})"
+            
+            # Create boxplot
+            sns.boxplot(y=metric, data=temp_df, ax=axes[i, 0])
+            axes[i, 0].set_title(f"Boxplot of {metric}\n{title_info}")
+            
+            # Create histogram with outliers highlighted
+            if f'{metric}_outlier' in temp_df.columns:
+                sns.histplot(
+                    data=temp_df, 
+                    x=metric,
+                    hue=f'{metric}_outlier',
+                    multiple="stack",
+                    palette=["#1f77b4", "#d62728"],  # Blue for normal, red for outliers
+                    ax=axes[i, 1]
+                )
+                axes[i, 1].set_title(f"Histogram of {metric} with outliers\n{title_info}")
+                
+                # Calculate and display outlier count
+                outlier_count = temp_df[f'{metric}_outlier'].sum()
+                total_count = len(temp_df[~temp_df[metric].isna()])
+                axes[i, 1].text(
+                    0.95, 0.95, 
+                    f"Outliers: {outlier_count}/{total_count} ({outlier_count/total_count:.1%})",
+                    transform=axes[i, 1].transAxes,
+                    ha='right', va='top',
+                    bbox=dict(facecolor='white', alpha=0.8, boxstyle='round,pad=0.5')
+                )
+            
+        plt.tight_layout()
+        return self.save_and_return(fig, f"outlier_detection_{method}")
+
 
 class ASGCAnalyzer(AbstractAnalyzer):
-    def __init__(self, dpi=300, cmap="viridis"):
-        super().__init__("/home/lcheng/oz318/fusion/logs/ASGC", dpi, cmap)
+    def __init__(self, dpi=300, cmap="viridis", remove_outliers=False, outlier_params=None):
+        super().__init__("/home/lcheng/oz318/fusion/logs/ASGC", dpi, cmap, 
+                         remove_outliers=remove_outliers, outlier_params=outlier_params)
 
     def post_process(self):
         """Extract dimension, regularization, and k values from the directory structure."""
@@ -568,10 +809,12 @@ class ASGCAnalyzer(AbstractAnalyzer):
 class FusionAnalyzer(AbstractAnalyzer):
     """Base class for analyzing fusion experiments."""
 
-    def __init__(self, experiment_type, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
+    def __init__(self, experiment_type, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
+                 remove_outliers=False, outlier_params=None):
         self.experiment_type = experiment_type
         base_path = f"/home/lcheng/oz318/fusion/logs/{experiment_type}"
-        super().__init__(base_path, dpi, cmap, figsize)
+        super().__init__(base_path, dpi, cmap, figsize, 
+                        remove_outliers=remove_outliers, outlier_params=outlier_params)
     def post_process(self):
         self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim"]] = self.df.prefix.str.split(
             "[/_]"
@@ -703,8 +946,10 @@ class FusionAnalyzer(AbstractAnalyzer):
 
 
 class AdditionFusionAnalyzer(FusionAnalyzer):
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
-        super().__init__("AdditionFusion", dpi, cmap, figsize)
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
+                 remove_outliers=False, outlier_params=None):
+        super().__init__("AdditionFusion", dpi, cmap, figsize, 
+                        remove_outliers=remove_outliers, outlier_params=outlier_params)
 
     def run(self):
         """Run all available visualizations for addition fusion analysis."""
@@ -712,8 +957,10 @@ class AdditionFusionAnalyzer(FusionAnalyzer):
 
 
 class EarlyFusionAnalyzer(FusionAnalyzer):
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
-        super().__init__("EarlyFusion", dpi, cmap, figsize)
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
+                 remove_outliers=False, outlier_params=None):
+        super().__init__("EarlyFusion", dpi, cmap, figsize, 
+                        remove_outliers=remove_outliers, outlier_params=outlier_params)
 
     def run(self):
         """Run all available visualizations for early fusion analysis."""
@@ -721,8 +968,10 @@ class EarlyFusionAnalyzer(FusionAnalyzer):
 
 
 class GatedFusionAnalyzer(FusionAnalyzer):
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
-        super().__init__("GatedFusion", dpi, cmap, figsize)
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
+                 remove_outliers=False, outlier_params=None):
+        super().__init__("GatedFusion", dpi, cmap, figsize, 
+                        remove_outliers=remove_outliers, outlier_params=outlier_params)
 
     def analyze_gate_scores(self):
         """Analyze the distribution of gate scores."""
@@ -757,8 +1006,10 @@ class GatedFusionAnalyzer(FusionAnalyzer):
 
 
 class LowRankFusionAnalyzer(FusionAnalyzer):
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
-        super().__init__("LowRankFusion", dpi, cmap, figsize)
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
+                 remove_outliers=False, outlier_params=None):
+        super().__init__("LowRankFusion", dpi, cmap, figsize, 
+                        remove_outliers=remove_outliers, outlier_params=outlier_params)
     def post_process(self):
         self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim", "rank"]] = self.df.prefix.str.split(
             "[/_]"
@@ -824,12 +1075,14 @@ class LowRankFusionAnalyzer(FusionAnalyzer):
 
 
 class TransformerFusionAnalyzer(FusionAnalyzer):
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
-        super().__init__("TransformerFusion", dpi, cmap, figsize)
-    # def post_process(self):
-    #     self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim", ""]] = self.df.prefix.str.split(
-    #         "[/_]"
-    #     ).tolist()
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
+                 remove_outliers=False, outlier_params=None):
+        super().__init__("TransformerFusion", dpi, cmap, figsize, 
+                        remove_outliers=remove_outliers, outlier_params=outlier_params)
+    def post_process(self):
+        self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim", "num_layers", "nhead", "output_modality"]] = self.df.prefix.str.split(
+            "[/_]"
+        ).tolist()
         self.df = self.df.drop(columns=["prefix"])
     def analyze(self):
         """Analyze with additional focus on transformer-specific parameters."""
@@ -959,9 +1212,11 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
 class CrossModelAnalyzer(AbstractAnalyzer):
     """Compare results across different fusion models."""
 
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
+                 remove_outliers=False, outlier_params=None):
         # Use a common parent directory that contains all model types
-        super().__init__("/home/lcheng/oz318/fusion/logs", dpi, cmap, figsize)
+        super().__init__("/home/lcheng/oz318/fusion/logs", dpi, cmap, figsize, 
+                        remove_outliers=remove_outliers, outlier_params=outlier_params)
 
     def analyze(self):
         """Analyze and compare results across different fusion models."""
@@ -975,7 +1230,12 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         # Basic comparison across models
         model_comparison = (
             self.df.groupby("model_type")
-            .agg({"acc/test": ["mean", "std", "max", "min", "count"]})
+            .agg({
+                "acc/test": ["mean", "std", "max", "min", "count"],
+                # Include link prediction metrics if they exist
+                **({'lp/auc': ["mean", "std", "max", "min"]} if 'lp/auc' in self.df.columns else {}),
+                **({'lp_hard/auc': ["mean", "std", "max", "min"]} if 'lp_hard/auc' in self.df.columns else {})
+            })
             .reset_index()
         )
 
@@ -988,7 +1248,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         return model_comparison
 
     def visualize(self):
-        """Visualize comparison of different fusion models."""
+        """Visualize comparison of different fusion models across all available metrics."""
         if self.df.empty:
             print("No data to visualize.")
             return plt.figure()
@@ -996,14 +1256,28 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         # Extract model type if not already done
         if "model_type" not in self.df.columns:
             self.df["model_type"] = self.df["path"].str.extract(r"/logs/([^/]+)/")
+            
+        # Identify which metrics are available
+        metrics = ['acc/test']
+        if 'lp/auc' in self.df.columns:
+            metrics.append('lp/auc')
+        if 'lp_hard/auc' in self.df.columns:
+            metrics.append('lp_hard/auc')
+            
+        # Create a subplot for each metric
+        num_metrics = len(metrics)
+        fig, axes = plt.subplots(1, num_metrics, figsize=(12 * num_metrics / 2, 8), squeeze=False)
+        
+        # Plot each metric
+        for i, metric in enumerate(metrics):
+            ax = axes[0, i]
+            sns.boxplot(x="model_type", y=metric, data=self.df, ax=ax)
+            ax.set_title(f"Comparison of Fusion Models: {metric.replace('/', ' ').title()}")
+            ax.set_xlabel("Fusion Model")
+            ax.set_ylabel(metric.replace('/', ' ').title())
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
 
-        fig, ax = plt.subplots(figsize=(12, 8))
-        sns.boxplot(x="model_type", y="acc/test", data=self.df, ax=ax)
-        ax.set_title("Comparison of Fusion Models")
-        ax.set_xlabel("Fusion Model")
-        ax.set_ylabel("Test Accuracy")
-        plt.xticks(rotation=45)
-
+        plt.tight_layout()
         return self.save_and_return(fig, "model_comparison")
 
     def visualize_by_embedding_type(self):
@@ -1025,18 +1299,89 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         self.df["embedding_combo"] = (
             self.df["textual_name"] + "_" + self.df["relational_name"]
         )
+        
+        # Identify which metrics are available
+        metrics = ['acc/test']
+        if 'lp/auc' in self.df.columns:
+            metrics.append('lp/auc')
+        if 'lp_hard/auc' in self.df.columns:
+            metrics.append('lp_hard/auc')
+            
+        # Create a subplot for each metric
+        num_metrics = len(metrics)
+        fig, axes = plt.subplots(num_metrics, 1, figsize=(14, 8 * num_metrics), squeeze=False)
+        
+        # Plot each metric
+        for i, metric in enumerate(metrics):
+            ax = axes[i, 0]
+            sns.boxplot(
+                x="embedding_combo", y=metric, hue="model_type", data=self.df, ax=ax
+            )
+            ax.set_title(f"Model {metric.replace('/', ' ').title()} by Embedding Combination")
+            ax.set_xlabel("Embedding Combination (Textual_Relational)")
+            ax.set_ylabel(metric.replace('/', ' ').title())
+            plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+            ax.legend(title="Fusion Model")
 
-        fig, ax = plt.subplots(figsize=(14, 10))
-        sns.boxplot(
-            x="embedding_combo", y="acc/test", hue="model_type", data=self.df, ax=ax
-        )
-        ax.set_title("Model Performance by Embedding Combination")
-        ax.set_xlabel("Embedding Combination (Textual_Relational)")
-        ax.set_ylabel("Test Accuracy")
-        plt.xticks(rotation=45)
-        ax.legend(title="Fusion Model")
-
+        plt.tight_layout()
         return self.save_and_return(fig, "embedding_type_comparison")
+    
+    def visualize_metrics_comparison(self):
+        """Compare different metrics across models in a grouped bar chart."""
+        if self.df.empty:
+            print("No data to visualize.")
+            return plt.figure()
+            
+        # Extract model type if not already done
+        if "model_type" not in self.df.columns:
+            self.df["model_type"] = self.df["path"].str.extract(r"/logs/([^/]+)/")
+            
+        # Identify available metrics
+        metrics = ['acc/test']
+        if 'lp/auc' in self.df.columns:
+            metrics.append('lp/auc')
+        if 'lp_hard/auc' in self.df.columns:
+            metrics.append('lp_hard/auc')
+            
+        if len(metrics) <= 1:
+            print("Not enough metrics for comparison.")
+            return plt.figure()
+            
+        # Calculate average metrics by model type
+        avg_metrics = self.df.groupby('model_type')[metrics].mean().reset_index()
+        
+        # Create figure
+        fig, ax = plt.subplots(figsize=(14, 8))
+        
+        # Set up positions for grouped bars
+        models = avg_metrics['model_type'].unique()
+        x = np.arange(len(models))
+        width = 0.8 / len(metrics)  # Adjust bar width based on number of metrics
+        
+        # Colors for different metrics
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c']  # Blue, orange, green
+        
+        # Create grouped bars
+        for i, metric in enumerate(metrics):
+            pos = x + width * (i - (len(metrics) - 1) / 2)
+            bars = ax.bar(pos, avg_metrics[metric], width, label=metric.replace('/', ' ').title(), color=colors[i % len(colors)])
+            
+            # Add value labels on bars
+            for bar_idx, bar in enumerate(bars):
+                height = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width()/2., height + 0.01,
+                       f'{height:.3f}', ha='center', va='bottom', fontsize=8, color=colors[i % len(colors)])
+        
+        ax.set_xlabel('Fusion Model')
+        ax.set_ylabel('Performance')
+        ax.set_title('Cross-Model Performance Metrics Comparison')
+        ax.set_xticks(x)
+        ax.set_xticklabels(models, rotation=45, ha='right')
+        ax.legend(title='Metric')
+        ax.grid(axis='y', linestyle='--', alpha=0.3)
+        
+        plt.tight_layout()
+        return self.save_and_return(fig, "metrics_comparison")
 
     def run(self):
         """Run all available visualizations for cross-model analysis."""
@@ -1048,14 +1393,22 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         except Exception as e:
             print(f"Error creating embedding type comparison: {e}")
             
+        try:
+            results["metrics_comparison"] = self.visualize_metrics_comparison()
+            print("Metrics comparison visualization created.")
+        except Exception as e:
+            print(f"Error creating metrics comparison: {e}")
+            
         return results
 
 
 class Node2VecAnalyzer(AbstractAnalyzer):
     """Analyzer for Node2Vec embeddings results."""
     
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
-        super().__init__("/home/lcheng/oz318/fusion/logs/Node2VecLightning", dpi, cmap, figsize)
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
+                 remove_outliers=False, outlier_params=None):
+        super().__init__("/home/lcheng/oz318/fusion/logs/Node2VecLightning", dpi, cmap, figsize, 
+                        remove_outliers=remove_outliers, outlier_params=outlier_params)
     
     def post_process(self):
         """Extract dimension and seed from the directory structure."""
@@ -1243,8 +1596,10 @@ class Node2VecAnalyzer(AbstractAnalyzer):
 class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
     """Analyzer for textual embeddings evaluation results."""
     
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
-        super().__init__("/home/lcheng/oz318/fusion/logs/TextualEmbeddings", dpi, cmap, figsize)
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
+                 remove_outliers=False, outlier_params=None):
+        super().__init__("/home/lcheng/oz318/fusion/logs/TextualEmbeddings", dpi, cmap, figsize, 
+                        remove_outliers=remove_outliers, outlier_params=outlier_params)
     
     def post_process(self):
         """Process the DataFrame to extract model names and dimensions."""
@@ -1529,7 +1884,7 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
 # analyzer.run()
 # analyzer = LowRankFusionAnalyzer()
 # results = analyzer.run()
-analyzer = TransformerFusionAnalyzer()
 
-# analyzer = CrossModelAnalyzer()
+analyzer = CrossModelAnalyzer()
+analyzer.visualize_outliers()
 # analyzer.run()
