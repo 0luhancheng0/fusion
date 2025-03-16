@@ -15,7 +15,14 @@ class AbstractAnalyzer(ABC):
         self.base_path = base_path
         self.dpi = dpi
         self.figsize = figsize
-        self.cmap = sns.color_palette(cmap, as_cmap=True)
+        
+        # Fix the colormap handling to work with both string names and existing colormap objects
+        if isinstance(cmap, str):
+            self.cmap = sns.color_palette(cmap, as_cmap=True)
+        else:
+            # If cmap is already a colormap object, use it directly
+            self.cmap = cmap
+            
         self.config_paths = list(Path(self.base_path).glob("**/config.json"))
         self.embeddings_paths = [i.parent / "embeddings.pt" for i in self.config_paths]
         self.results_paths = [i.parent / "results.json" for i in self.config_paths]
@@ -465,7 +472,7 @@ class ASGCAnalyzer(AbstractAnalyzer):
                 
                 # Plot link prediction heatmap in second column
                 ax2 = axes[i, 1]
-                sns.heatmap(lp_pivot, cmap="RdYlGn", annot=True, fmt=".3f", ax=ax2)
+                sns.heatmap(lp_pivot, cmap=self.cmap, annot=True, fmt=".3f", ax=ax2)
                 ax2.set_title(f"Link Prediction AUC (dim={dim})")
                 ax2.set_xlabel("Regularization")
                 ax2.set_ylabel("Number of Hops (k)")
@@ -501,7 +508,7 @@ class ASGCAnalyzer(AbstractAnalyzer):
             axes[0].set_ylabel("Number of Hops (k)")
             
             # Plot link prediction heatmap
-            sns.heatmap(lp_pivot, cmap="RdYlGn", annot=True, fmt=".3f", ax=axes[1])  # Different colormap for distinction
+            sns.heatmap(lp_pivot, cmap=self.cmap, annot=True, fmt=".3f", ax=axes[1])  # Different colormap for distinction
             axes[1].set_title(f"Link Prediction AUC (dim={dim})")
             axes[1].set_xlabel("Regularization")
             axes[1].set_ylabel("Number of Hops (k)")
@@ -783,6 +790,55 @@ class ASGCAnalyzer(AbstractAnalyzer):
             print(f"Error creating coefficient heatmaps: {e}")
             
         return results
+
+    def visualize_hyperparameter_sensitivity(self, param_name, metric='acc/test'):
+        """
+        Visualize the sensitivity of models to a specific hyperparameter.
+        
+        Args:
+            param_name: Name of the hyperparameter to analyze (e.g., 'latent_dim', 'k', 'reg')
+            metric: Performance metric to track
+        """
+        if self.df.empty or param_name not in self.df.columns or metric not in self.df.columns:
+            print(f"Missing required parameter '{param_name}' or metric '{metric}'")
+            return plt.figure()
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        # Calculate mean and standard deviation for each parameter value
+        param_stats = self.df.groupby(param_name)[metric].agg(['mean', 'std']).reset_index()
+        
+        # Sort by parameter value for better visualization
+        param_stats = param_stats.sort_values(param_name)
+        
+        # Plot the mean with error bars showing standard deviation
+        ax.errorbar(
+            x=param_stats[param_name], 
+            y=param_stats['mean'], 
+            yerr=param_stats['std'],
+            fmt='o-', 
+            capsize=5, 
+            linewidth=2,
+            markersize=8
+        )
+        
+        # Add value labels
+        for x, y, std in zip(param_stats[param_name], param_stats['mean'], param_stats['std']):
+            ax.annotate(
+                f'{y:.3f}±{std:.3f}',
+                (x, y),
+                xytext=(0, 10),
+                textcoords='offset points',
+                ha='center',
+                fontsize=8
+            )
+        
+        ax.set_xlabel(f'Hyperparameter: {param_name}')
+        ax.set_ylabel(f'Performance: {metric}')
+        ax.set_title(f'Sensitivity Analysis for {param_name}')
+        ax.grid(True, alpha=0.3)
+        
+        return self.save_and_return(fig, f"sensitivity_{param_name}")
 
 
 class FusionAnalyzer(AbstractAnalyzer):
@@ -1344,7 +1400,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
     def visualize_metrics_comparison(self):
         """Compare different metrics across models in a grouped bar chart."""
         if self.df.empty:
-            print("No data to visualize.")
+            print("No data to visualize correlations.")
             return plt.figure()
             
         # Extract model type if not already done
@@ -1544,6 +1600,13 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         """Run all available visualizations for cross-model analysis."""
         results = super().run()
         
+        # Get available metrics
+        metrics = ['acc/test']
+        if 'lp/auc' in self.df.columns:
+            metrics.append('lp/auc')
+        if 'lp_hard/auc' in self.df.columns:
+            metrics.append('lp_hard/auc')
+        
         try:
             results["embedding_type"] = self.visualize_by_embedding_type()
             print("Embedding type comparison visualization created.")
@@ -1555,7 +1618,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             print("Metrics comparison visualization created.")
         except Exception as e:
             print(f"Error creating metrics comparison: {e}")
-            
+
         # Add the new fusion heatmap visualizations
         try:
             fusion_heatmaps = self.visualize_fusion_heatmaps()
@@ -1566,8 +1629,567 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         except Exception as e:
             print(f"Error creating fusion heatmap visualizations: {e}")
             
+        # Add performance tradeoffs visualization
+        try:
+            results["performance_tradeoffs"] = self.visualize_performance_tradeoffs()
+            print("Performance tradeoffs visualization created.")
+        except Exception as e:
+            print(f"Error creating performance tradeoffs visualization: {e}")
+            
+        # Add metric correlations visualization
+        try:
+            results["metric_correlations"] = self.visualize_metric_correlations()
+            print("Metric correlations visualization created.")
+        except Exception as e:
+            print(f"Error creating metric correlations visualization: {e}")
+            
+        # Create performance distributions for all available metrics
+        for metric in metrics:
+            try:
+                metric_key = f"performance_distributions_{metric.replace('/', '_')}"
+                results[metric_key] = self.visualize_performance_distributions(metric)
+                print(f"Performance distributions visualization created for {metric}.")
+            except Exception as e:
+                print(f"Error creating performance distributions visualization for {metric}: {e}")
+            
+        # Create embedding quality impact for all available metrics
+        for metric in metrics:
+            try:
+                metric_key = f"embedding_quality_impact_{metric.replace('/', '_')}"
+                results[metric_key] = self.visualize_embedding_quality_impact(metric)
+                print(f"Embedding quality impact visualization created for {metric}.")
+            except Exception as e:
+                print(f"Error creating embedding quality impact visualization for {metric}: {e}")
+            
+        # Create performance gain for all available metrics
+        for metric in metrics:
+            try:
+                metric_key = f"performance_gain_{metric.replace('/', '_')}"
+                results[metric_key] = self.visualize_performance_gain(metric)
+                print(f"Performance gain visualization created for {metric}.")
+            except Exception as e:
+                print(f"Error creating performance gain visualization for {metric}: {e}")
+
         return results
 
+    def visualize_performance_tradeoffs(self):
+        """
+        Create a scatter plot showing trade-offs between node classification and link prediction performance.
+        Each point represents a model/experiment, positioned by its accuracy vs LP performance.
+        """
+        if self.df.empty or 'acc/test' not in self.df.columns or 'lp/auc' not in self.df.columns:
+            print("Missing required metrics for trade-off visualization.")
+            return plt.figure()
+            
+        fig, ax = plt.subplots(figsize=(10, 8))
+        
+        # Add model type column if not present
+        if 'model_type' not in self.df.columns:
+            self.df['model_type'] = self.df['path'].str.extract(r'/logs/([^/]+)/')
+        
+        # Create scatter plot with different colors for different model types
+        models = sorted(self.df['model_type'].unique())
+        palette = sns.color_palette(n_colors=len(models))
+        
+        for i, model in enumerate(models):
+            model_data = self.df[self.df['model_type'] == model]
+            ax.scatter(
+                model_data['acc/test'], 
+                model_data['lp/auc'], 
+                s=80, 
+                color=palette[i], 
+                alpha=0.7,
+                label=model
+            )
+        
+        # Add diagonal line representing equal performance on both tasks
+        min_val = min(self.df['acc/test'].min(), self.df['lp/auc'].min())
+        max_val = max(self.df['acc/test'].max(), self.df['lp/auc'].max())
+        ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.3)
+        
+        # Add labels for interesting points
+        top_models = self.df.nlargest(5, 'acc/test')
+        for _, row in top_models.iterrows():
+            ax.annotate(
+                f"{row['model_type']}",
+                (row['acc/test'], row['lp/auc']),
+                xytext=(5, 5),
+                textcoords='offset points',
+                fontsize=8
+            )
+        
+        ax.set_xlabel('Node Classification Accuracy')
+        ax.set_ylabel('Link Prediction AUC')
+        ax.set_title('Performance Trade-offs: Node Classification vs. Link Prediction')
+        ax.grid(True, alpha=0.3)
+        ax.legend(title='Model Type')
+        
+        return self.save_and_return(fig, "performance_tradeoffs")
+
+    def visualize_metric_correlations(self):
+        """
+        Create a heatmap showing correlations between different performance metrics.
+        """
+        if self.df.empty:
+            print("No data to visualize correlations.")
+            return plt.figure()
+        
+        # Identify metrics columns (those containing '/' in their name)
+        metric_cols = [col for col in self.df.columns if '/' in col]
+        
+        if len(metric_cols) < 2:
+            print("Not enough metrics for correlation analysis.")
+            return plt.figure()
+        
+        # Calculate correlation matrix
+        corr_matrix = self.df[metric_cols].corr()
+        
+        # Create heatmap
+        fig, ax = plt.subplots(figsize=(10, 8))
+        mask = np.triu(np.ones_like(corr_matrix, dtype=bool))
+        
+        sns.heatmap(
+            corr_matrix, 
+            annot=True, 
+            fmt=".2f", 
+            cmap="coolwarm", 
+            mask=mask,
+            vmin=-1, 
+            vmax=1, 
+            ax=ax
+        )
+        
+        ax.set_title('Correlation Matrix of Performance Metrics')
+        
+        return self.save_and_return(fig, "metric_correlations")
+
+    def visualize_performance_distributions(self, metric='acc/test'):
+        """
+        Visualize the performance distribution across different models using violin plots.
+        
+        Args:
+            metric: The performance metric to visualize
+        """
+        if self.df.empty or metric not in self.df.columns:
+            print(f"Missing required metric '{metric}'")
+            return plt.figure()
+        
+        # Add model type column if not present
+        if 'model_type' not in self.df.columns:
+            self.df['model_type'] = self.df['path'].str.extract(r'/logs/([^/]+)/')
+        
+        fig, ax = plt.subplots(figsize=(12, 7))
+        
+        # Create violin plot
+        sns.violinplot(
+            x='model_type', 
+            y=metric, 
+            data=self.df,
+            palette="Set3",
+            inner="box",  # Show box plot inside violin
+            ax=ax
+        )
+        
+        # Add individual data points
+        sns.stripplot(
+            x='model_type', 
+            y=metric, 
+            data=self.df,
+            size=4, 
+            alpha=0.4,
+            jitter=True,
+            ax=ax
+        )
+        
+        # Add mean values as text
+        for i, model in enumerate(sorted(self.df['model_type'].unique())):
+            model_data = self.df[self.df['model_type'] == model]
+            mean_val = model_data[metric].mean()
+            ax.text(
+                i, mean_val + 0.01,
+                f'μ={mean_val:.3f}',
+                ha='center', fontsize=9
+            )
+        
+        ax.set_xlabel('Model Type')
+        ax.set_ylabel(f'{metric} Performance')
+        ax.set_title(f'Distribution of {metric} Performance by Model Type')
+        plt.xticks(rotation=45, ha='right')
+        
+        return self.save_and_return(fig, f"performance_distribution_{metric}".replace('/', '_'))
+        
+
+    def visualize_embedding_quality_impact(self, metric='acc/test'):
+        """
+        Visualize how the quality of input embeddings (textual and relational)
+        affects the fusion model performance.
+        
+        Args:
+            metric: Performance metric to visualize (e.g., 'acc/test', 'lp/auc')
+        """
+        if self.df.empty:
+            print("No data to visualize.")
+            return plt.figure()
+            
+        # Extract needed information from the fusion models DataFrame
+        if "model_type" not in self.df.columns:
+            self.df["model_type"] = self.df["path"].str.extract(r"/logs/([^/]+)/")
+            
+        if "textual_name" not in self.df.columns:
+            self.df["textual_name"] = self.df["path"].str.extract(r"/([^/]+)_[^/]+/\d+_\d+")
+            
+        if "relational_name" not in self.df.columns:
+            self.df["relational_name"] = self.df["path"].str.extract(r"/[^/]+_([^/]+)/\d+_\d+")
+            
+        # Check required columns are available
+        for col in ["model_type", "textual_name", "relational_name", metric]:
+            if col not in self.df.columns or self.df[col].isnull().all():
+                print(f"Missing required column: {col}")
+                return plt.figure()
+                
+        # Load baseline metrics
+        baselines = self.load_baseline_metrics()
+        if not baselines["relational"] or not baselines["textual"]:
+            print("No baseline metrics available for comparison.")
+            return plt.figure()
+            
+        # Create a temporary DataFrame for the visualization with matched baselines
+        plot_data_rows = []
+        
+        for idx, row in self.df.iterrows():
+            # Skip rows without required info
+            if pd.isna(row["textual_name"]) or pd.isna(row["relational_name"]):
+                continue
+                
+            # Try to find matching baseline metrics
+            try:
+                # Match with textual baseline
+                textual_key = f"{row['textual_name']}/{row['textual_dim']}"
+                if textual_key in baselines['textual'] and metric in baselines['textual'][textual_key]:
+                    textual_baseline = baselines['textual'][textual_key][metric]
+                    
+                    # Match with relational baseline
+                    rel_dim = str(row['relational_dim'])
+                    if rel_dim in baselines['relational'] and metric in baselines['relational'][rel_dim]:
+                        relational_baseline = baselines['relational'][rel_dim][metric]
+                        
+                        # Add row with matched baselines
+                        plot_data_rows.append({
+                            'model_type': row['model_type'],
+                            metric: row[metric],
+                            'textual_baseline': textual_baseline,
+                            'relational_baseline': relational_baseline,
+                            'textual_name': row['textual_name'],
+                            'relational_name': row['relational_name']
+                        })
+            except Exception as e:
+                # Skip rows with missing information or errors
+                pass
+                
+        # Create plot DataFrame from collected rows
+        if not plot_data_rows:
+            print(f"No rows with matching baseline metrics found for {metric}.")
+            return plt.figure()
+            
+        plot_df = pd.DataFrame(plot_data_rows)
+        
+        # Create visualization
+        fig, ax = plt.subplots(figsize=(12, 10))
+        
+        # Create scatter plot with model type markers
+        models = sorted(plot_df['model_type'].unique())
+        markers = ['o', 's', '^', 'd', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', '|', '_'][:len(models)]
+        
+        # Calculate improvement over baseline for color intensity
+        plot_df['avg_baseline'] = (plot_df['textual_baseline'] + plot_df['relational_baseline']) / 2
+        plot_df['improvement'] = plot_df[metric] - plot_df['avg_baseline']
+        
+        # Setup color normalization based on improvement
+        norm = plt.Normalize(plot_df['improvement'].min(), plot_df['improvement'].max())
+        
+        # Create a proxy artist for the color bar
+        sm = plt.cm.ScalarMappable(cmap="viridis", norm=norm)
+        sm.set_array([])
+        
+        # Plot points for each model type with custom markers
+        for i, model in enumerate(models):
+            model_data = plot_df[plot_df['model_type'] == model]
+            scatter = ax.scatter(
+                model_data['textual_baseline'],
+                model_data['relational_baseline'],
+                c=model_data['improvement'], 
+                cmap='viridis',
+                s=100, 
+                marker=markers[i % len(markers)],
+                alpha=0.8,
+                edgecolors='white',
+                linewidth=1,
+                label=model
+            )
+            
+            # Add annotations for significant points
+            if len(model_data) > 0:
+                best_idx = model_data[metric].idxmax()
+                best_row = model_data.loc[best_idx]
+                ax.annotate(
+                    f"{model}: {best_row[metric]:.3f}",
+                    (best_row['textual_baseline'], best_row['relational_baseline']),
+                    xytext=(5, 5),
+                    textcoords='offset points',
+                    fontsize=8,
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", alpha=0.7)
+                )
+        
+        # Diagonal line representing equal performance of both embeddings
+        min_val = min(plot_df['textual_baseline'].min(), plot_df['relational_baseline'].min())
+        max_val = max(plot_df['textual_baseline'].max(), plot_df['relational_baseline'].max())
+        ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.5)
+        
+        # Add colorbar and labels
+        cbar = plt.colorbar(sm)
+        metric_name = metric.replace('/', ' ').replace('_', ' ').title()
+        cbar.set_label(f'Improvement over Average Baseline ({metric_name})')
+        
+        ax.set_xlabel(f'Textual Embedding {metric_name}')
+        ax.set_ylabel(f'Relational Embedding {metric_name}')
+        ax.set_title(f'Impact of Input Embedding Quality on Fusion {metric_name}')
+        
+        ax.set_xlim(plot_df['textual_baseline'].min() - 0.02, plot_df['textual_baseline'].max() + 0.02)
+        ax.set_ylim(plot_df['relational_baseline'].min() - 0.02, plot_df['relational_baseline'].max() + 0.02)
+        
+        ax.grid(True, alpha=0.3)
+        ax.legend(title='Fusion Method')
+        
+        metric_suffix = metric.replace('/', '_')
+        return self.save_and_return(fig, f"embedding_quality_impact_{metric_suffix}")
+
+    def visualize_performance_gain(self, metric='acc/test'):
+        """
+        Visualize how much performance is gained by fusion compared to individual baselines.
+        
+        Args:
+            metric: Performance metric to visualize (e.g., 'acc/test', 'lp/auc')
+        """
+        if self.df.empty:
+            print("No data to visualize.")
+            return plt.figure()
+            
+        # Extract needed information from the DataFrame
+        if "model_type" not in self.df.columns:
+            self.df["model_type"] = self.df["path"].str.extract(r"/logs/([^/]+)/")
+            
+        if "textual_name" not in self.df.columns:
+            self.df["textual_name"] = self.df["path"].str.extract(r"/([^/]+)_[^/]+/\d+_\d+")
+            
+        if "relational_name" not in self.df.columns:
+            self.df["relational_name"] = self.df["path"].str.extract(r"/[^/]+_([^/]+)/\d+_\d+")
+            
+        # Load baseline metrics
+        baselines = self.load_baseline_metrics()
+        if not baselines["relational"] or not baselines["textual"]:
+            print("No baseline metrics available for comparison.")
+            return plt.figure()
+            
+        # Create a temporary DataFrame for the visualization with computed gains
+        plot_data_rows = []
+        
+        for idx, row in self.df.iterrows():
+            # Skip rows without required info
+            if pd.isna(row["textual_name"]) or pd.isna(row["relational_name"]) or pd.isna(row[metric]):
+                continue
+                
+            # Try to find matching baseline metrics
+            try:
+                # Match with textual baseline
+                textual_key = f"{row['textual_name']}/{row['textual_dim']}"
+                if textual_key in baselines['textual'] and metric in baselines['textual'][textual_key]:
+                    textual_baseline = baselines['textual'][textual_key][metric]
+                    
+                    # Match with relational baseline
+                    rel_dim = str(row['relational_dim'])
+                    if rel_dim in baselines['relational'] and metric in baselines['relational'][rel_dim]:
+                        relational_baseline = baselines['relational'][rel_dim][metric]
+                        
+                        # Calculate performance gains
+                        gain_over_textual = row[metric] - textual_baseline
+                        gain_over_relational = row[metric] - relational_baseline
+                        gain_over_best = row[metric] - max(textual_baseline, relational_baseline)
+                        gain_over_avg = row[metric] - ((textual_baseline + relational_baseline) / 2)
+                        
+                        # Add row with calculated gains
+                        plot_data_rows.append({
+                            'model_type': row['model_type'],
+                            metric: row[metric],
+                            'gain_over_textual': gain_over_textual,
+                            'gain_over_relational': gain_over_relational,
+                            'gain_over_best': gain_over_best,
+                            'gain_over_avg': gain_over_avg
+                        })
+            except Exception as e:
+                # Skip rows with missing information or errors
+                pass
+                
+        # Create DataFrame from collected rows
+        if not plot_data_rows:
+            print(f"No rows with matching baseline metrics found for {metric}.")
+            return plt.figure()
+            
+        plot_df = pd.DataFrame(plot_data_rows)
+        
+        # Prepare data for grouped bar chart
+        gain_metrics = ['gain_over_textual', 'gain_over_relational', 'gain_over_best', 'gain_over_avg']
+        
+        # Group by model type and calculate mean gains
+        model_gains = plot_df.groupby('model_type')[gain_metrics].mean().reset_index()
+        
+        # Reshape for grouped bar chart
+        melted_gains = pd.melt(
+            model_gains,
+            id_vars=['model_type'],
+            value_vars=gain_metrics,
+            var_name='Comparison',
+            value_name='Gain'
+        )
+        
+        # Map gain metric names to more readable labels
+        comparison_labels = {
+            'gain_over_textual': 'vs Textual Only',
+            'gain_over_relational': 'vs Relational Only',
+            'gain_over_best': 'vs Best Single',
+            'gain_over_avg': 'vs Average Single'
+        }
+        melted_gains['Comparison'] = melted_gains['Comparison'].map(comparison_labels)
+        
+        # Create grouped bar chart
+        fig, ax = plt.subplots(figsize=(14, 8))
+        
+        sns.barplot(
+            x='model_type',
+            y='Gain',
+            hue='Comparison',
+            data=melted_gains,
+            palette='viridis',
+            ax=ax
+        )
+        
+        # Add value labels on bars
+        for p in ax.patches:
+            height = p.get_height()
+            if abs(height) > 0.001:  # Only label non-zero values
+                ax.annotate(
+                    f'{height:.3f}',
+                    (p.get_x() + p.get_width() / 2., height),
+                    ha='center', 
+                    va='bottom' if height > 0 else 'top',
+                    fontsize=8,
+                    color='black' if height > 0 else 'red',
+                    xytext=(0, 5 if height > 0 else -5),
+                    textcoords='offset points'
+                )
+        
+        # Add reference line at y=0
+        ax.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        
+        # Color negative bars differently
+        for patch in ax.patches:
+            if patch.get_height() < 0:
+                patch.set_facecolor('#d62728')  # Red
+        
+        metric_name = metric.replace('/', ' ').replace('_', ' ').title()
+        ax.set_title(f'Performance Gains from Fusion Models vs Single-Modality Baselines ({metric_name})')
+        ax.set_xlabel('Fusion Model Type')
+        ax.set_ylabel(f'{metric_name} Gain (higher is better)')
+        
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        
+        metric_suffix = metric.replace('/', '_')
+        return self.save_and_return(fig, f"performance_gains_{metric_suffix}")
+
+    def load_baseline_metrics(self):
+        """
+        Load baseline metrics for textual and relational embeddings.
+        
+        Returns:
+            dict: Dictionary containing baseline metrics for textual and relational embeddings
+                 with the structure:
+                 {
+                     'textual': {
+                         'model_name/dim': {'acc/test': value, 'lp/auc': value, ...},
+                         ...
+                     },
+                     'relational': {
+                         'dim': {'acc/test': value, 'lp/auc': value, ...},
+                         ...
+                     }
+                 }
+        """
+        baselines = {
+            'textual': {},
+            'relational': {}
+        }
+        
+        # Load textual baselines from TextualEmbeddings
+        textual_path = "/home/lcheng/oz318/fusion/logs/TextualEmbeddings"
+        if Path(textual_path).exists():
+            textual_analyzer = TextualEmbeddingsAnalyzer(dpi=self.dpi, cmap=self.cmap, figsize=self.figsize)
+            for _, row in textual_analyzer.df.iterrows():
+                if 'model' in row and 'embedding_dim' in row:
+                    # Create a unique key combining model name and dimension
+                    key = f"{row['model']}/{row['embedding_dim']}"
+                    baselines['textual'][key] = {}
+                    
+                    # Add all available metrics
+                    for metric in ['acc/test', 'acc/valid', 'lp/auc', 'lp_hard/auc']:
+                        if metric in row and not pd.isna(row[metric]):
+                            baselines['textual'][key][metric] = row[metric]
+        
+        # Load Node2Vec relational baselines
+        node2vec_path = "/home/lcheng/oz318/fusion/logs/Node2VecLightning"
+        if Path(node2vec_path).exists():
+            node2vec_analyzer = Node2VecAnalyzer(dpi=self.dpi, cmap=self.cmap, figsize=self.figsize)
+            # Group by dimension and average the metrics
+            if not node2vec_analyzer.df.empty:
+                metrics = ['acc/test', 'acc/val', 'lp/auc', 'lp_hard/auc']
+                dim_metrics = node2vec_analyzer.df.groupby('dim')[metrics].mean().reset_index()
+                
+                for _, row in dim_metrics.iterrows():
+                    dim = str(int(row['dim']))  # Convert to string for key
+                    if dim not in baselines['relational']:
+                        baselines['relational'][dim] = {}
+                        
+                    # Add all available metrics
+                    for metric in metrics:
+                        if metric in row and not pd.isna(row[metric]):
+                            baselines['relational'][dim][metric] = row[metric]
+        
+        # Load ASGC relational baselines
+        asgc_path = "/home/lcheng/oz318/fusion/logs/ASGC"
+        if Path(asgc_path).exists():
+            asgc_analyzer = ASGCAnalyzer(dpi=self.dpi, cmap=self.cmap, figsize=self.figsize)
+            # Group by dimension and find best regularization and k values
+            if not asgc_analyzer.df.empty:
+                # Get the best performing config for each dimension
+                best_configs = []
+                for dim in asgc_analyzer.df['dim'].unique():
+                    dim_data = asgc_analyzer.df[asgc_analyzer.df['dim'] == dim]
+                    best_idx = dim_data['acc/test'].idxmax()
+                    best_configs.append(dim_data.loc[best_idx])
+                
+                best_configs_df = pd.DataFrame(best_configs)
+                
+                for _, row in best_configs_df.iterrows():
+                    dim = str(int(row['dim']))  # Convert to string for key
+                    if dim not in baselines['relational']:
+                        baselines['relational'][dim] = {}
+                    
+                    # Add metrics, with "asgc_" prefix to distinguish from Node2Vec
+                    for metric in ['acc/test', 'acc/valid', 'lp/auc', 'lp_hard/auc']:
+                        if metric in row and not pd.isna(row[metric]):
+                            baselines['relational'][f"asgc_{dim}"] = {}
+                            baselines['relational'][f"asgc_{dim}"][metric] = row[metric]
+        
+        return baselines
 
 class Node2VecAnalyzer(AbstractAnalyzer):
     """Analyzer for Node2Vec embeddings results."""
@@ -2096,5 +2718,9 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
 # analyzer.run()
 # analyzer = LowRankFusionAnalyzer()
 # analyzer.run()
-analyzer = CrossModelAnalyzer()
-analyzer.run()
+# analyzer = CrossModelAnalyzer()
+# analyzer.run()
+# baseline = analyzer.load_baseline_metrics()
+# baseline
+# analyzer.visualize_performance_distributions("lp_hard/auc")
+# analyzer.run()
