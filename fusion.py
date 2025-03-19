@@ -572,6 +572,76 @@ class Experiment:
                 prefix=prefix,
             )
 
+    @app.command()
+    def check_results(
+        results_dir: Path = Path("logs"),
+        verbose: bool = False
+    ):
+        """Check how many trials of fusion experiments have been run."""
+        # Find all results.json files
+        results_files = list(results_dir.glob("**/results.json"))
+        
+        # Count the completed trials
+        completed_trials = len(results_files)
+        
+        # Calculate total expected trials
+        total_textual_relational_pairs = len(Experiment.input_features)
+        total_seeds = len(Experiment.seeds)
+        total_latent_dims = len(Experiment.latent_dim)
+        
+        # Calculate expected trials for each experiment type
+        standard_exp_trials = total_textual_relational_pairs * total_seeds * total_latent_dims
+        transformer_exp_trials = standard_exp_trials * 3  # 3 output modalities
+        
+        # Total expected across all experiment types
+        # 4 standard experiments (early, addition, gated, lowrank) + transformer
+        total_expected_trials = 4 * standard_exp_trials + transformer_exp_trials
+        
+        # Print progress information
+        print(f"Progress: {completed_trials}/{total_expected_trials} trials completed ({completed_trials/total_expected_trials*100:.2f}%)")
+        print(f"- Each standard experiment type: {standard_exp_trials} trials")
+        print(f"- Transformer experiment: {transformer_exp_trials} trials")
+        
+        # Group by experiment type
+        if verbose:
+            import json
+            experiment_types = {}
+            
+            for result_file in results_files:
+                parent_path = result_file.parent
+                
+                # Extract experiment type from directory structure
+                exp_type = "Unknown"
+                if "output_modality" in str(parent_path):
+                    exp_type = "TransformerFusion"
+                elif any(part.isdigit() and part == "4" for part in str(parent_path).split('/')):
+                    exp_type = "LowRankFusion"
+                else:
+                    # Check the model file to determine type
+                    try:
+                        with open(parent_path / "hparams.yaml", 'r') as f:
+                            for line in f:
+                                if "model_cls" in line:
+                                    exp_type = line.split(':')[1].strip()
+                                    break
+                    except:
+                        pass
+                
+                if exp_type not in experiment_types:
+                    experiment_types[exp_type] = 0
+                experiment_types[exp_type] += 1
+            
+            # Print experiment type counts and completion percentages
+            print("\nCompletion by experiment type:")
+            for exp_type, count in sorted(experiment_types.items()):
+                expected = transformer_exp_trials if exp_type == "TransformerFusion" else standard_exp_trials
+                if expected > 0:
+                    completion_pct = (count / expected) * 100
+                    print(f"  {exp_type}: {count}/{expected} ({completion_pct:.2f}%)")
+                else:
+                    print(f"  {exp_type}: {count} (unknown expected total)")
+        
+        return completed_trials, total_expected_trials
 
 
 if __name__ == "__main__":

@@ -15,3 +15,7 @@ SAVED_EMBEDDINGS_DIR = Path("/home/lcheng/oz318/fusion/saved_embeddings/ogbn-arx
 LOG_DIR = Path("/home/lcheng/oz318/fusion/logs")
 
 FIGURE_PATH = LOG_DIR / "figures"
+
+HARD_NEGATIVE_SAMPLES = Path("/fred/oz318/luhanc/fusion/logs/arxiv_hard_negatives.pt")
+
+UNIFORM_NEGATIVE_SAMPLES = Path("/fred/oz318/luhanc/fusion/logs/arxiv_uniform_negatives.pt")

@@ -8,6 +8,7 @@ from functools import partial
 import math
 import random
 from tqdm import tqdm
+from constants import HARD_NEGATIVE_SAMPLES, UNIFORM_NEGATIVE_SAMPLES
 
 LOGISTIC_REGRESSION_PROVIDER = "cuml"
 if torch.cuda.is_available():
@@ -301,12 +302,101 @@ class NodeEmbeddingEvaluator:
         return hard_neg_src, hard_neg_dst
 
     @staticmethod
+    def generate_uniform_negative_samples(
+        graph: dgl.DGLGraph,
+        num_samples: int = None,
+        save_path: Optional[Union[str, Path]] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Generate uniform negative samples from a graph and optionally save them.
+        
+        Args:
+            graph: Input graph
+            num_samples: Number of samples to generate (defaults to number of edges)
+            save_path: Path to save samples
+            
+        Returns:
+            Tuple of (source_nodes, destination_nodes) tensors
+        """
+        device = graph.device
+        if num_samples is None:
+            num_samples = graph.num_edges()
+            
+        # Generate uniform negative samples
+        neg_src, neg_dst = dgl.sampling.global_uniform_negative_sampling(
+            graph, num_samples
+        )
+        
+        # Save the generated samples if save_path is provided
+        if save_path is not None:
+            # Create directory if it doesn't exist
+            save_dir = Path(save_path).parent
+            save_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Save as dictionary with CPU tensors to ensure portability
+            save_dict = {
+                'src': neg_src.cpu(),
+                'dst': neg_dst.cpu(),
+                'num_nodes': graph.num_nodes(),
+                'num_edges': graph.num_edges()
+            }
+            torch.save(save_dict, save_path)
+            print(f"Saved {len(neg_src)} uniform negative samples to {save_path}")
+            
+        return neg_src, neg_dst
+
+    @staticmethod
+    def load_negative_samples(
+        load_path: Union[str, Path],
+        device: str = None,
+        num_samples: Optional[int] = None
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Load negative samples from a file.
+        
+        Args:
+            load_path: Path to load samples from
+            device: Device to load samples to (defaults to current device of tensors in file)
+            num_samples: Number of samples to load (defaults to all available samples)
+            
+        Returns:
+            Tuple of (source_nodes, destination_nodes) tensors
+            
+        Raises:
+            FileNotFoundError: If the file doesn't exist
+            RuntimeError: If the file contains invalid data
+        """
+        try:
+            saved_data = torch.load(load_path)
+            neg_src = saved_data['src']
+            neg_dst = saved_data['dst']
+            
+            # Move to specified device if provided
+            if device is not None:
+                neg_src = neg_src.to(device)
+                neg_dst = neg_dst.to(device)
+                
+            # Subsample if needed
+            if num_samples is not None and len(neg_src) > num_samples:
+                perm = torch.randperm(len(neg_src), device=neg_src.device)
+                idx = perm[:num_samples]
+                neg_src = neg_src[idx]
+                neg_dst = neg_dst[idx]
+                
+            print(f"Loaded {len(neg_src)} negative samples from {load_path}")
+            return neg_src, neg_dst
+            
+        except (FileNotFoundError, KeyError, RuntimeError) as e:
+            raise RuntimeError(f"Could not load negative samples from {load_path}: {e}")
+
+    @staticmethod
     def evaluate_link_prediction(
         graph, embeddings, predictor=EdgePredictor("cos"), neg_ratio=1.0, eval_fn=auroc, batch_size=100000,
-        use_hard_negatives=False
+        use_hard_negatives=False, negative_samples_path=None
     ):
         """
         Evaluate link prediction with batched processing to avoid OOM errors.
+        Uses pre-generated negative samples from files.
         
         Args:
             graph: DGL graph
@@ -315,22 +405,33 @@ class NodeEmbeddingEvaluator:
             neg_ratio: Ratio of negative to positive samples
             eval_fn: Evaluation metric function
             batch_size: Batch size for processing edges to avoid OOM
-            use_hard_negatives: Whether to use hard negative sampling instead of random
+            use_hard_negatives: Whether to use hard negative samples instead of uniform negatives
+            negative_samples_path: Path to load pre-generated negative samples from
             
         Returns:
             Link prediction score
+            
+        Raises:
+            RuntimeError: If negative samples cannot be loaded
         """
         src, dst = graph.edges()
         total_edges = src.shape[0]
+        device = embeddings.device
         
-        # Sample negative edges
-        if use_hard_negatives:
-            neg_src, neg_dst = NodeEmbeddingEvaluator.optimized_hard_negative_sampling(
-                graph, int(total_edges * neg_ratio)
+        # Determine which negative samples path to use if not explicitly provided
+        if negative_samples_path is None:
+            negative_samples_path = HARD_NEGATIVE_SAMPLES if use_hard_negatives else UNIFORM_NEGATIVE_SAMPLES
+        
+        # Load negative samples from file - no fallback to generation
+        try:
+            neg_src, neg_dst = NodeEmbeddingEvaluator.load_negative_samples(
+                negative_samples_path, device, int(total_edges * neg_ratio)
             )
-        else:
-            neg_src, neg_dst = dgl.sampling.global_uniform_negative_sampling(
-                graph, int(total_edges * neg_ratio)
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not load negative samples from {negative_samples_path}. "
+                "Please generate samples first using generate_negative_samples() method. "
+                f"Error: {e}"
             )
 
         # Process positive edges in batches
@@ -372,7 +473,54 @@ class NodeEmbeddingEvaluator:
         
         return eval_fn(scores, labels, task="binary").item()
 
+    @staticmethod
+    def generate_negative_samples(
+        graph, 
+        uniform_save_path=UNIFORM_NEGATIVE_SAMPLES, 
+        hard_save_path=HARD_NEGATIVE_SAMPLES,
+        num_samples=None,
+        max_samples_per_node=10,
+        num_workers=None
+    ):
+        """
+        Generate and save both uniform and hard negative samples for a graph.
+        This method should be called independently from CLI before running evaluations.
         
+        Args:
+            graph: DGL graph
+            uniform_save_path: Path to save uniform negative samples
+            hard_save_path: Path to save hard negative samples
+            num_samples: Number of samples to generate (defaults to number of edges)
+            max_samples_per_node: Maximum samples per source node for hard negatives
+            num_workers: Number of worker processes for hard negative sampling
+            
+        Returns:
+            dict: Summary of generated samples
+        """
+        if num_samples is None:
+            num_samples = graph.num_edges()
+            
+        results = {}
+        
+        # Generate and save uniform samples
+        print(f"Generating uniform negative samples (saving to {uniform_save_path})...")
+        uniform_src, uniform_dst = NodeEmbeddingEvaluator.generate_uniform_negative_samples(
+            graph, num_samples, save_path=uniform_save_path
+        )
+        results["uniform_samples"] = len(uniform_src)
+        
+        # Generate and save hard negative samples
+        print(f"Generating hard negative samples (saving to {hard_save_path})...")
+        hard_src, hard_dst = NodeEmbeddingEvaluator.optimized_hard_negative_sampling(
+            graph, num_samples, 
+            max_samples_per_node=max_samples_per_node,
+            num_workers=num_workers,
+            save_path=hard_save_path
+        )
+        results["hard_samples"] = len(hard_src)
+        
+        return results
+
     @staticmethod
     def evaluate_node_classification(
         node_embeddings: Union[Tensor, np.ndarray],

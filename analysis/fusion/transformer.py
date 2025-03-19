@@ -1,0 +1,271 @@
+import seaborn as sns
+import matplotlib.pyplot as plt
+import numpy as np
+from sklearn.cluster import KMeans
+import pandas as pd
+from .base import FusionAnalyzer
+
+
+class TransformerFusionAnalyzer(FusionAnalyzer):
+    def __init__(
+        self,
+        dpi=300,
+        cmap="viridis",
+        figsize=(6.4, 4.8),
+        remove_outliers=False,
+        outlier_params=None,
+    ):
+        super().__init__(
+            "TransformerFusion",
+            dpi,
+            cmap,
+            figsize,
+            remove_outliers=remove_outliers,
+            outlier_params=outlier_params,
+        )
+
+    def post_process(self):
+        self.df[
+            [
+                "textual_name",
+                "relational_name",
+                "textual_dim",
+                "relational_dim",
+                "latent_dim",
+                "num_layers",
+                "nhead",
+                "output_modality",
+            ]
+        ] = self.df.prefix.str.split("[/_]").tolist()
+        self.df = self.df.drop(columns=["prefix"])
+
+    def analyze(self):
+        """Analyze with additional focus on transformer-specific parameters."""
+        if self.df.empty:
+            print("No data to analyze.")
+            return None
+        # Basic analysis from parent
+        basic_analysis = super().analyze()
+
+        # Additional analysis by transformer parameters
+        transformer_analysis = (
+            self.df.groupby(["latent_dim", "num_layers", "nhead", "output_modality"])
+            .agg({"acc/test": ["mean", "std", "count"]})
+            .reset_index()
+        )
+
+        # Format column names
+        transformer_analysis.columns = [
+            "_".join(col).strip() if col[1] else col[0]
+            for col in transformer_analysis.columns.values
+        ]
+
+        return {
+            "basic_analysis": basic_analysis,
+            "transformer_analysis": transformer_analysis,
+        }
+
+    def visualize_output_modality(self):
+        """Visualize the impact of output modality on model performance."""
+        if self.df.empty:
+            print("No data to visualize.")
+            return plt.figure()
+
+        # Extract parameters if not already done
+        if "output_modality" not in self.df.columns:
+            path_pattern = r"/\d+_\d+/(\d+)_(\d+)/(\w+)"
+            self.df["num_layers"] = (
+                self.df["path"].str.extract(path_pattern).iloc[:, 0].astype(int)
+            )
+            self.df["nhead"] = (
+                self.df["path"].str.extract(path_pattern).iloc[:, 1].astype(int)
+            )
+            self.df["output_modality"] = (
+                self.df["path"].str.extract(path_pattern).iloc[:, 2]
+            )
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        sns.boxplot(
+            x="output_modality", y="acc/test", hue="latent_dim", data=self.df, ax=ax
+        )
+        ax.set_title("Transformer Fusion: Test Accuracy by Output Modality")
+        ax.set_xlabel("Output Modality")
+        ax.set_ylabel("Test Accuracy")
+        ax.legend(title="Latent Dim")
+
+        return self.save_and_return(fig, "output_modality_impact")
+
+    def visualize_architecture_impact(self):
+        """Visualize the impact of different output modalities across tasks."""
+        if self.df.empty:
+            print("No data to visualize.")
+            return plt.figure()
+
+        # Extract parameters if not already done
+        if "output_modality" not in self.df.columns:
+            self.post_process()  # Ensure we have all columns processed
+
+        # Use textual_name as a proxy for different tasks
+        # Get unique tasks to plot
+        tasks = self.df['textual_name'].unique()
+        
+        # Create a figure with subplots based on number of tasks
+        fig, axes = plt.subplots(len(tasks), 1, figsize=(12, 4 * len(tasks)))
+        if len(tasks) == 1:
+            axes = [axes]  # Convert to list if only one task
+            
+        for i, task in enumerate(tasks):
+            task_data = self.df[self.df['textual_name'] == task]
+            
+            # Create boxplot for this task
+            sns.boxplot(
+                x="output_modality", 
+                y="acc/test", 
+                hue="relational_name",  # Use relational_name to differentiate data types
+                data=task_data, 
+                ax=axes[i]
+            )
+            axes[i].set_title(f"Impact of Output Modality for Task: {task}")
+            axes[i].set_xlabel("Output Modality")
+            axes[i].set_ylabel("Test Accuracy")
+            axes[i].legend(title="Relational Data Type")
+        
+        plt.tight_layout()
+        return self.save_and_return(fig, "output_modality_by_task")
+
+    def analyze_parameter_importance(self, metrics=None):
+        """
+        Quantifies and ranks which parameters have the strongest effect on performance.
+        
+        Args:
+            metrics (list, optional): Performance metrics to analyze. Defaults to ['acc/test'].
+        
+        Returns:
+            dict: Dictionary mapping metrics to DataFrames of ranked parameters by importance.
+        """
+        if self.df.empty:
+            print("No data to analyze.")
+            return {}
+            
+        # Ensure we have processed the data
+        if "output_modality" not in self.df.columns:
+            self.post_process()
+        
+        # Default metrics if none provided
+        if metrics is None:
+            metrics = ['acc/test']
+        
+        parameters = ['latent_dim', 'num_layers', 'nhead', 'output_modality', 
+                      'textual_dim', 'relational_dim', 'textual_name', 'relational_name']
+        
+        results = {}
+        figures = {}
+        
+        for metric in metrics:
+            # Skip metrics that don't exist in the dataframe
+            if metric not in self.df.columns:
+                print(f"Metric '{metric}' not found in data.")
+                continue
+                
+            # Get data with non-null values for this metric
+            metric_data = self.df[~self.df[metric].isna()].copy()
+            
+            if metric_data.empty:
+                print(f"No data found for metric '{metric}'.")
+                continue
+            
+            # Calculate effect sizes and p-values for each parameter
+            param_effects = []
+            
+            for param in parameters:
+                try:
+                    if param not in metric_data.columns:
+                        continue
+                        
+                    # Convert parameter to categorical if it isn't already
+                    if metric_data[param].dtype == 'object' or isinstance(metric_data[param].dtype, pd.CategoricalDtype):
+                        groups = metric_data.groupby(param)[metric]
+                    else:
+                        # For numerical parameters, bin them into quartiles
+                        metric_data[f'{param}_binned'] = pd.qcut(metric_data[param], 4, duplicates='drop')
+                        groups = metric_data.groupby(f'{param}_binned')[metric]
+                    
+                    # Calculate metrics for parameter importance
+                    group_values = [group[1].values for group in groups]
+                    
+                    # Skip if we have fewer than 2 groups or any group is empty
+                    if len(group_values) < 2 or any(len(g) == 0 for g in group_values):
+                        continue
+                    
+                    # Effect size: max group mean - min group mean (normalized by overall std)
+                    group_means = [g.mean() for g in group_values if len(g) > 0]
+                    overall_std = metric_data[metric].std()
+                    effect_size = (max(group_means) - min(group_means)) / overall_std if overall_std > 0 else 0
+                    
+                    # Range of means
+                    mean_range = max(group_means) - min(group_means) if group_means else 0
+                    
+                    # Variance explained: ratio of between-group variance to total variance
+                    grand_mean = metric_data[metric].mean()
+                    total_variance = sum((val - grand_mean) ** 2 for g in group_values for val in g)
+                    between_variance = sum(len(g) * ((g.mean() - grand_mean) ** 2) for g in group_values if len(g) > 0)
+                    variance_explained = between_variance / total_variance if total_variance > 0 else 0
+                    
+                    param_effects.append({
+                        'parameter': param,
+                        'effect_size': effect_size,
+                        'mean_range': mean_range,
+                        'variance_explained': variance_explained,
+                        'num_groups': len(group_values)
+                    })
+                except Exception as e:
+                    print(f"Error analyzing parameter {param} for {metric}: {e}")
+            
+            # Create DataFrame and sort by importance
+            if param_effects:
+                effects_df = pd.DataFrame(param_effects)
+                effects_df = effects_df.sort_values('variance_explained', ascending=False)
+                results[metric] = effects_df
+                
+                # Create visualization
+                fig, ax = plt.subplots(figsize=(10, 6))
+                sns.barplot(x='parameter', y='variance_explained', data=effects_df, ax=ax)
+                ax.set_title(f'Parameter Importance for {metric}')
+                ax.set_xlabel('Parameter')
+                ax.set_ylabel('Variance Explained')
+                plt.xticks(rotation=45)
+                plt.tight_layout()
+                
+                figures[metric] = self.save_and_return(fig, f"parameter_importance_{metric.replace('/', '_')}")
+            else:
+                print(f"No valid parameters found for {metric}.")
+        
+        return {
+            'importance_data': results,
+            'importance_figures': figures
+        }
+        
+    def run(self):
+        """Run all available visualizations for transformer fusion analysis."""
+        results = super().run()
+
+        try:
+            results["output_modality"] = self.visualize_output_modality()
+            print("Output modality visualization created.")
+        except Exception as e:
+            print(f"Error creating output modality visualization: {e}")
+
+        try:
+            results["architecture_impact"] = self.visualize_architecture_impact()
+            print("Architecture impact visualization created.")
+        except Exception as e:
+            print(f"Error creating architecture impact visualization: {e}")
+
+        try:
+            param_importance = self.analyze_parameter_importance(['acc/test', 'lp/auc', 'lp_hard/auc'])
+            results["parameter_importance"] = param_importance
+            print("Parameter importance analysis created.")
+        except Exception as e:
+            print(f"Error creating parameter importance analysis: {e}")
+
+        return results
