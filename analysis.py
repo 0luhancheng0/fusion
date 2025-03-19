@@ -63,8 +63,6 @@ def asgc(
     remove_outliers: bool = typer.Option(False, help="Whether to remove outliers"),
     outlier_method: OutlierMethod = typer.Option(OutlierMethod.IQR, help="Method for outlier detection"),
     outlier_threshold: float = typer.Option(1.5, help="Threshold for outlier detection"),
-    save: bool = typer.Option(True, help="Save figures"),
-    show: bool = typer.Option(False, help="Show figures (may not work in headless environments)")
 ):
     """Run ASGC analyzer"""
     typer.echo("Running ASGC analyzer...")
@@ -104,10 +102,6 @@ def asgc(
         results["best_coefficients"] = coef_fig
         typer.echo("Created coefficient visualization for best model")
     
-    # Handle display options
-    if show:
-        typer.echo("Showing figures...")
-        plt.show()
     
     return results
 
@@ -115,15 +109,12 @@ def asgc(
 def crossmodel(
     metrics: List[str] = typer.Option(["acc/test"], help="Metrics for outlier removal"),
     model_filter: Optional[str] = typer.Option(None, help="Filter specific model types (comma-separated)"),
-    show_detailed_metrics: bool = typer.Option(True, help="Show detailed metrics analyses"),
     dpi: int = typer.Option(300, help="DPI for saved figures"),
     cmap: ColorMap = typer.Option(ColorMap.VIRIDIS, help="Colormap to use for plots"),
     figsize: str = typer.Option("12,8", help="Figure size as width,height", callback=parse_figsize),
     remove_outliers: bool = typer.Option(False, help="Whether to remove outliers"),
     outlier_method: OutlierMethod = typer.Option(OutlierMethod.IQR, help="Method for outlier detection"),
     outlier_threshold: float = typer.Option(1.5, help="Threshold for outlier detection"),
-    save: bool = typer.Option(True, help="Save figures"),
-    show: bool = typer.Option(False, help="Show figures (may not work in headless environments)")
 ):
     """Run cross-model comparison analyzer"""
     typer.echo("Running cross-model comparison...")
@@ -148,10 +139,6 @@ def crossmodel(
     # Run analysis
     results = analyzer.run()
     
-    # Handle display options
-    if show:
-        typer.echo("Showing figures...")
-        plt.show()
     
     return results
 
@@ -159,15 +146,12 @@ def crossmodel(
 def node2vec(
     metrics: List[str] = typer.Option(["acc/test"], help="Metrics for outlier removal"),
     dim_value: Optional[int] = typer.Option(None, help="Filter by specific dimension"),
-    show_seed_variance: bool = typer.Option(True, help="Show seed variance analysis"),
     dpi: int = typer.Option(300, help="DPI for saved figures"),
     cmap: ColorMap = typer.Option(ColorMap.VIRIDIS, help="Colormap to use for plots"),
     figsize: str = typer.Option("12,8", help="Figure size as width,height", callback=parse_figsize),
     remove_outliers: bool = typer.Option(False, help="Whether to remove outliers"),
     outlier_method: OutlierMethod = typer.Option(OutlierMethod.IQR, help="Method for outlier detection"),
     outlier_threshold: float = typer.Option(1.5, help="Threshold for outlier detection"),
-    save: bool = typer.Option(True, help="Save figures"),
-    show: bool = typer.Option(False, help="Show figures (may not work in headless environments)")
 ):
     """Run Node2Vec analyzer"""
     typer.echo("Running Node2Vec analyzer...")
@@ -190,11 +174,7 @@ def node2vec(
     
     # Run analysis
     results = analyzer.run()
-    
-    # Handle display options
-    if show:
-        typer.echo("Showing figures...")
-        plt.show()
+
     
     return results
 
@@ -208,7 +188,6 @@ def textual(
     remove_outliers: bool = typer.Option(False, help="Whether to remove outliers"),
     outlier_method: OutlierMethod = typer.Option(OutlierMethod.IQR, help="Method for outlier detection"),
     outlier_threshold: float = typer.Option(1.5, help="Threshold for outlier detection"),
-    save: bool = typer.Option(True, help="Save figures"),
     show: bool = typer.Option(False, help="Show figures (may not work in headless environments)")
 ):
     """Run Textual Embeddings analyzer"""
@@ -233,17 +212,6 @@ def textual(
     # Run analysis
     results = analyzer.run()
     
-    # Find and report best model
-    if not analyzer.df.empty:
-        best_model = analyzer.find_best_model()
-        typer.echo(f"Best model: {best_model['model']} "
-                  f"(dimension: {best_model.get('embedding_dim', 'N/A')}) "
-                  f"with accuracy: {best_model.get('acc/test', 0):.4f}")
-    
-    # Handle display options
-    if show:
-        typer.echo("Showing figures...")
-        plt.show()
     
     return results
 
@@ -260,8 +228,6 @@ def fusion(
     remove_outliers: bool = typer.Option(False, help="Whether to remove outliers"),
     outlier_method: OutlierMethod = typer.Option(OutlierMethod.IQR, help="Method for outlier detection"),
     outlier_threshold: float = typer.Option(1.5, help="Threshold for outlier detection"),
-    save: bool = typer.Option(True, help="Save figures"),
-    show: bool = typer.Option(False, help="Show figures (may not work in headless environments)")
 ):
     """Run a specific fusion analyzer"""
     # Map of fusion type names to analyzers
@@ -311,19 +277,6 @@ def fusion(
     # Run analysis
     results = analyzer.run()
     
-    # Find and report best configuration
-    if not analyzer.df.empty:
-        best_idx = analyzer.df["acc/test"].idxmax()
-        best_config = analyzer.df.loc[best_idx]
-        typer.echo("\nBest configuration:")
-        for col in ["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim", "acc/test"]:
-            if col in best_config:
-                typer.echo(f"  {col}: {best_config[col]}")
-    
-    # Handle display options
-    if show:
-        typer.echo("Showing figures...")
-        plt.show()
     
     return results
 
@@ -333,9 +286,6 @@ def find_best_hard_lp(
     dpi: int = typer.Option(300, help="DPI for saved figures"),
     cmap: ColorMap = typer.Option(ColorMap.VIRIDIS, help="Colormap to use for plots"),
     figsize: str = typer.Option("12,8", help="Figure size as width,height", callback=parse_figsize),
-    remove_outliers: bool = typer.Option(False, help="Whether to remove outliers"),
-    outlier_method: OutlierMethod = typer.Option(OutlierMethod.IQR, help="Method for outlier detection"),
-    outlier_threshold: float = typer.Option(1.5, help="Threshold for outlier detection"),
     save: bool = typer.Option(True, help="Save figures"),
     show: bool = typer.Option(False, help="Show figures (may not work in headless environments)")
 ):
@@ -445,7 +395,6 @@ def build_outlier_params(metrics: List[str], method: OutlierMethod, threshold: f
     }
 
 if __name__ == "__main__":
-    # Set headless backend if not showing plots
     if "--show" not in os.sys.argv and "--no-show" not in os.sys.argv:
         matplotlib.use("Agg")
     

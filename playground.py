@@ -12,6 +12,6 @@ embeddings = torch.load(Path(df.iloc[0].path) / "embeddings.pt", map_location="c
 graph = OGBNArxivDataset.load_graph()
 evaluator = OGBNArxivDataset.evaluator()
 
-evaluator.evaluate_link_prediction(graph, embeddings, use_hard_negatives=True)
+# evaluator.evaluate_link_prediction(graph, embeddings, use_hard_negatives=True)
 # evaluator.evaluate_arxiv_embeddings(embeddings)
 
