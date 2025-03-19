@@ -149,7 +149,7 @@ class AbstractAnalyzer(ABC):
         Remove outliers from the DataFrame based on specified metrics.
         
         Args:
-            metrics (list): List of metrics to check for outliers (e.g., ['acc/test', 'lp/auc']).
+            metrics (list): List of metrics to check for outliers (e.g., ['acc/test', 'lp_uniform/auc']).
                            If None, uses ['acc/test'] if available.
             method (str): Method to detect outliers - 'iqr', 'zscore', or 'percentile'
             threshold (float): Threshold for outlier detection:
@@ -260,7 +260,7 @@ class AbstractAnalyzer(ABC):
         Visualize data distribution with outliers highlighted.
         
         Args:
-            metrics (list): List of metrics to visualize (e.g., ['acc/test', 'lp/auc']).
+            metrics (list): List of metrics to visualize (e.g., ['acc/test', 'lp_uniform/auc']).
                           If None, uses ['acc/test'] if available.
             method (str): Method to detect outliers - 'iqr', 'zscore', or 'percentile'
             threshold (float): Threshold for outlier detection

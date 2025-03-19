@@ -44,7 +44,7 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
             agg_dict = {
                 "acc/valid": ["mean", "std"],
                 "acc/test": ["mean", "std"],
-                "lp/auc": ["mean", "std"]
+                "lp_uniform/auc": ["mean", "std"]
             }
             
             # Include hard link prediction if available
@@ -84,7 +84,7 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
         
         # Get accuracy and link prediction values for each model
         test_accuracies = [plot_data[plot_data['model'] == model]['acc/test'].mean() for model in models]
-        lp_aucs = [plot_data[plot_data['model'] == model]['lp/auc'].mean() for model in models]
+        lp_aucs = [plot_data[plot_data['model'] == model]['lp_uniform/auc'].mean() for model in models]
         
         # Check if hard link prediction data is available
         has_hard_lp = 'lp_hard/auc' in self.df.columns
@@ -208,7 +208,7 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
             return plt.figure()
         
         # Determine which metrics to include
-        metrics = ['acc/valid', 'acc/test', 'lp/auc']
+        metrics = ['acc/valid', 'acc/test', 'lp_uniform/auc']
         if 'lp_hard/auc' in self.df.columns:
             metrics.append('lp_hard/auc')
         

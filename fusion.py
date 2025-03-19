@@ -313,6 +313,76 @@ class Driver(DriverBase):
             )
             .type(torch.float16)
         )
+    
+    def evaluate_link_prediction(self, embeddings=None, batch_size=100000, use_hard_negatives=False):
+        """Evaluate link prediction performance of the model embeddings.
+        
+        Args:
+            embeddings: Optional pre-computed embeddings (computes if None)
+            batch_size: Batch size for processing edges to avoid OOM
+            use_hard_negatives: Whether to use hard negative samples
+            
+        Returns:
+            AUROC score for link prediction
+        """
+        if embeddings is None:
+            embeddings = self.get_node_embeddings()
+            
+        from evaluation import NodeEmbeddingEvaluator
+        from dataloading import OGBNArxivDataset
+        
+        # Get evaluator
+        evaluator = OGBNArxivDataset.evaluator()
+        
+        # Get graph
+        graph = self.datamodule.graph.to(embeddings.device)
+        
+        # Evaluate link prediction
+        return evaluator.evaluate_link_prediction(
+            graph=graph,
+            embeddings=embeddings,
+            batch_size=batch_size,
+            use_hard_negatives=use_hard_negatives
+        )
+
+    def run(self):
+        """Override run to also evaluate link prediction and save results."""
+        results = super().run()
+        
+        # Add link prediction evaluation with both negative sampling approaches
+        try:
+            embeddings = self.get_node_embeddings()
+            
+            # Evaluate with uniform negative samples
+            results["lp_uniform/auc"] = self.evaluate_link_prediction(
+                embeddings=embeddings,
+                use_hard_negatives=False
+            )
+            
+            # Evaluate with hard negative samples
+            results["lp_hard/auc"] = self.evaluate_link_prediction(
+                embeddings=embeddings,
+                use_hard_negatives=True
+            )
+            
+            # Update results file
+            import json
+            import os
+            
+            results_path = os.path.join(self.logdir, "results.json")
+            if os.path.exists(results_path):
+                with open(results_path, 'r') as f:
+                    file_results = json.load(f)
+                file_results.update(results)
+                results = file_results
+                
+            with open(results_path, 'w') as f:
+                json.dump(results, f, indent=2)
+                
+        except Exception as e:
+            print(f"Warning: Link prediction evaluation failed: {e}")
+        
+        return results
 
 
 def run(

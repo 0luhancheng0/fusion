@@ -37,7 +37,7 @@ class ASGCAnalyzer(AbstractAnalyzer):
             .agg({
                 "acc/valid": ["mean", "std"],  # Use acc/valid if that's your key
                 "acc/test": ["mean", "std"],
-                "lp/auc": ["mean", "std"]
+                "lp_uniform/auc": ["mean", "std"]
             })
             .reset_index()
         )
@@ -82,9 +82,9 @@ class ASGCAnalyzer(AbstractAnalyzer):
                 
                 lp_pivot = (
                     dim_df.groupby(["k", "reg"])
-                    .agg({"lp/auc": "mean"})
+                    .agg({"lp_uniform/auc": "mean"})
                     .reset_index()
-                    .pivot(index="k", columns="reg", values="lp/auc")
+                    .pivot(index="k", columns="reg", values="lp_uniform/auc")
                 )
 
                 # Plot accuracy heatmap in first column
@@ -120,9 +120,9 @@ class ASGCAnalyzer(AbstractAnalyzer):
             # Link prediction heatmap
             lp_pivot = (
                 self.df.groupby(["k", "reg"])
-                .agg({"lp/auc": "mean"})
+                .agg({"lp_uniform/auc": "mean"})
                 .reset_index()
-                .pivot(index="k", columns="reg", values="lp/auc")
+                .pivot(index="k", columns="reg", values="lp_uniform/auc")
             )
 
             # Plot accuracy heatmap

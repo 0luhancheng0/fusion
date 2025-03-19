@@ -75,8 +75,8 @@ class FusionAnalyzer(AbstractAnalyzer):
         
         # Determine which metrics are available
         metrics = ["acc/test"]
-        if "lp/auc" in plot_df.columns:
-            metrics.append("lp/auc")
+        if "lp_uniform/auc" in plot_df.columns:
+            metrics.append("lp_uniform/auc")
         if "lp_hard/auc" in plot_df.columns:
             metrics.append("lp_hard/auc")
             

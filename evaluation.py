@@ -414,6 +414,20 @@ class NodeEmbeddingEvaluator:
         Raises:
             RuntimeError: If negative samples cannot be loaded
         """
+        # Check for invalid values in embeddings
+        if (torch.isnan(embeddings).any() or 
+            torch.isinf(embeddings).any()):
+            
+            # Calculate statistics for detailed warning
+            nan_percent = torch.isnan(embeddings).float().mean().item() * 100 if torch.isnan(embeddings).any() else 0
+            inf_percent = torch.isinf(embeddings).float().mean().item() * 100 if torch.isinf(embeddings).any() else 0
+            
+            print(f"WARNING: Embeddings contain invalid values. Returning 0 for evaluation.")
+            print(f"  NaN values: {nan_percent:.4f}%")
+            print(f"  Inf values: {inf_percent:.4f}%")
+            
+            return 0.0
+        
         src, dst = graph.edges()
         total_edges = src.shape[0]
         device = embeddings.device

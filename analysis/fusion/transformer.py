@@ -66,7 +66,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         }
 
     def visualize_output_modality(self):
-        """Visualize the impact of output modality on model performance."""
+        """Visualize the impact of output modality on model performance across multiple metrics."""
         if self.df.empty:
             print("No data to visualize.")
             return plt.figure()
@@ -84,14 +84,65 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
                 self.df["path"].str.extract(path_pattern).iloc[:, 2]
             )
 
-        fig, ax = plt.subplots(figsize=(10, 6))
-        sns.boxplot(
-            x="output_modality", y="acc/test", hue="latent_dim", data=self.df, ax=ax
+        # Define metrics to visualize
+        metrics = ["acc/test", "lp_uniform/auc", "lp_hard/auc"]
+        
+        # Get unique output modalities
+        output_modalities = self.df["output_modality"].unique()
+        n_modalities = len(output_modalities)
+        
+        # Create figure with subplot grid: metrics as rows, modalities as columns
+        fig, axes = plt.subplots(
+            len(metrics), n_modalities, 
+            figsize=(6 * n_modalities, 5 * len(metrics)), 
+            squeeze=False
         )
-        ax.set_title("Transformer Fusion: Test Accuracy by Output Modality")
-        ax.set_xlabel("Output Modality")
-        ax.set_ylabel("Test Accuracy")
-        ax.legend(title="Latent Dim")
+        
+        # Create a separate subplot for each combination of metric and modality
+        for i, metric in enumerate(metrics):
+            # Create a row of plots that share the y-axis
+            for j, modality in enumerate(output_modalities):
+                modality_data = self.df[self.df["output_modality"] == modality]
+                
+                # Skip if metric doesn't exist in dataframe
+                if metric not in modality_data.columns:
+                    axes[i, j].text(0.5, 0.5, f"No data for {metric}", 
+                                  ha='center', va='center', transform=axes[i, j].transAxes)
+                    continue
+                
+                # Filter out rows with NaN values for this metric
+                valid_data = modality_data[~modality_data[metric].isna()]
+                
+                if valid_data.empty:
+                    axes[i, j].text(0.5, 0.5, f"No valid data for {metric}", 
+                                 ha='center', va='center', transform=axes[i, j].transAxes)
+                    continue
+                    
+                # Create boxplot for this modality and metric
+                sns.boxplot(
+                    x="latent_dim", y=metric, data=valid_data, ax=axes[i, j]
+                )
+                
+                # Set titles and labels
+                if i == 0:  # Only set modality title on the top row
+                    axes[i, j].set_title(f"Output Modality: {modality}")
+                
+                if j == 0:  # Only set y-label for leftmost plots
+                    axes[i, j].set_ylabel(metric)
+                else:
+                    axes[i, j].set_ylabel("")
+                
+                if i == len(metrics)-1:  # Only set x-label for bottom row
+                    axes[i, j].set_xlabel("Latent Dimension")
+                else:
+                    axes[i, j].set_xlabel("")
+                    
+                # Share y-axis limits within each row (same metric)
+                if j > 0:
+                    axes[i, j].sharey(axes[i, 0])
+            
+        plt.suptitle("Transformer Fusion: Performance Metrics by Output Modality", fontsize=16)
+        plt.tight_layout(rect=[0, 0, 1, 0.95])  # Make room for suptitle
 
         return self.save_and_return(fig, "output_modality_impact")
 
@@ -172,6 +223,18 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
             
             if metric_data.empty:
                 print(f"No data found for metric '{metric}'.")
+                continue
+            
+            # Filter out rows with infinite values in the metric column
+            metric_data = metric_data[np.isfinite(metric_data[metric])]
+            
+            # Filter out rows with NaN or infinite values in numeric columns
+            numeric_cols = metric_data.select_dtypes(include=np.number).columns
+            finite_mask = np.all(np.isfinite(metric_data[numeric_cols]), axis=1)
+            metric_data = metric_data[finite_mask]
+            
+            if metric_data.empty:
+                print(f"No valid data left for metric '{metric}' after filtering NaN/inf values.")
                 continue
             
             # Calculate effect sizes and p-values for each parameter
@@ -262,7 +325,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
             print(f"Error creating architecture impact visualization: {e}")
 
         try:
-            param_importance = self.analyze_parameter_importance(['acc/test', 'lp/auc', 'lp_hard/auc'])
+            param_importance = self.analyze_parameter_importance(['acc/test', 'lp_uniform/auc', 'lp_hard/auc'])
             results["parameter_importance"] = param_importance
             print("Parameter importance analysis created.")
         except Exception as e:

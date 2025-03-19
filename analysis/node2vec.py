@@ -32,7 +32,7 @@ class Node2VecAnalyzer(AbstractAnalyzer):
             .agg({
                 "acc/val": ["mean", "std", "min", "max"],
                 "acc/test": ["mean", "std", "min", "max"],
-                "lp/auc": ["mean", "std", "min", "max"],
+                "lp_uniform/auc": ["mean", "std", "min", "max"],
                 "lp_hard/auc": ["mean", "std", "min", "max"],  # Added hard link prediction metric
             })
             .reset_index()
@@ -58,8 +58,8 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         axes[0, 0].set_ylabel("Test Accuracy")
         
         # Plot 2: Standard link prediction by dimension
-        if "lp/auc" in self.df.columns:
-            sns.boxplot(x="dim", y="lp/auc", data=self.df, ax=axes[0, 1])
+        if "lp_uniform/auc" in self.df.columns:
+            sns.boxplot(x="dim", y="lp_uniform/auc", data=self.df, ax=axes[0, 1])
             axes[0, 1].set_title("Link Prediction AUC by Dimension")
             axes[0, 1].set_xlabel("Embedding Dimension")
             axes[0, 1].set_ylabel("AUC")
@@ -94,8 +94,8 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         
         # Calculate average metrics by dimension
         agg_metrics = ['acc/test']
-        if 'lp/auc' in self.df.columns:
-            agg_metrics.append('lp/auc')
+        if 'lp_uniform/auc' in self.df.columns:
+            agg_metrics.append('lp_uniform/auc')
         if 'lp_hard/auc' in self.df.columns:
             agg_metrics.append('lp_hard/auc')
             
@@ -130,22 +130,22 @@ class Node2VecAnalyzer(AbstractAnalyzer):
     
     def visualize_lp_comparison(self):
         """Compare standard and hard link prediction performance."""
-        if self.df.empty or 'lp/auc' not in self.df.columns or 'lp_hard/auc' not in self.df.columns:
+        if self.df.empty or 'lp_uniform/auc' not in self.df.columns or 'lp_hard/auc' not in self.df.columns:
             print("No data for link prediction comparison.")
             return plt.figure()
         
         fig, ax = plt.subplots(figsize=self.figsize)
         
         # Calculate average metrics by dimension
-        dim_metrics = self.df.groupby('dim')[['lp/auc', 'lp_hard/auc']].mean().reset_index()
+        dim_metrics = self.df.groupby('dim')[['lp_uniform/auc', 'lp_hard/auc']].mean().reset_index()
         
         # Create line plot with markers
-        ax.plot(dim_metrics['dim'], dim_metrics['lp/auc'], 'o-', label='Standard LP', linewidth=2, color='#ff7f0e')
+        ax.plot(dim_metrics['dim'], dim_metrics['lp_uniform/auc'], 'o-', label='Standard LP', linewidth=2, color='#ff7f0e')
         ax.plot(dim_metrics['dim'], dim_metrics['lp_hard/auc'], 's-', label='Hard LP', linewidth=2, color='#2ca02c')
         
         # Add value labels
         for i, row in dim_metrics.iterrows():
-            ax.text(row['dim'], row['lp/auc'] + 0.01, f'{row["lp/auc"]:.3f}', 
+            ax.text(row['dim'], row['lp_uniform/auc'] + 0.01, f'{row["lp_uniform/auc"]:.3f}', 
                    ha='center', fontsize=9, color='#ff7f0e')
             ax.text(row['dim'], row['lp_hard/auc'] - 0.02, f'{row["lp_hard/auc"]:.3f}', 
                    ha='center', fontsize=9, color='#2ca02c')

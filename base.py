@@ -149,13 +149,7 @@ class DriverBase(ABC):
         self.results = {
             **self.validate(),
             **self.test(),
-            # "lp/auc/hard": self.evaluator.evaluate_link_prediction(
-            #     self.graph, self.get_node_embeddings(), hard_negative=True
-            # ),
-            # "lp/auc/random": self.evaluator.evaluate_link_prediction(
-            #     self.graph, self.get_node_embeddings(), hard_negative=False
-            # ),
-            "lp/auc": self.evaluator.evaluate_link_prediction(
+            "lp_uniform/auc": self.evaluator.evaluate_link_prediction(
                 self.graph, self.get_node_embeddings()
             ),
         }

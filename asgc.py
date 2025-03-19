@@ -10,7 +10,9 @@ from torch import Tensor
 from base import DriverBase, ConfigBase
 
 import typer
+
 app = typer.Typer()
+
 
 class SGConv:
     def __init__(
@@ -75,7 +77,14 @@ class ASGC:
     """Adaptive Spectral Graph Convolution (ASGC) model."""
 
     def __init__(
-        self, input_features, k=8, reg=5, lr=0.01, weight_decay=5e-4, num_classes=40, device="cuda:0"
+        self,
+        input_features,
+        k=8,
+        reg=5,
+        lr=0.01,
+        weight_decay=5e-4,
+        num_classes=40,
+        device="cuda:0",
     ):
         self.device = device
         self.input_features = input_features.to(self.device)
@@ -86,20 +95,22 @@ class ASGC:
         self.weight_decay = weight_decay
         self.num_classes = num_classes
         self.sgc = SGConv(k=k, cached=True)
-        
+
         self.cache = None
-        self.coefficients = torch.zeros((self.k + 1, self.input_features.shape[-1]), device=self.device)
+        self.coefficients = torch.zeros(
+            (self.k + 1, self.input_features.shape[-1]), device=self.device
+        )
         self.R = torch.zeros((self.k + 1), device=self.device)
         self.R[0] = self.reg
 
         self.dataset = OGBNArxivDataset()
-        
+
         self.graph = self.dataset.graph.to(self.device)
         # self.masks = {"train": self.graph.ndata["train_mask"], "valid": self.graph.ndata["val_mask"], "test": self.graph.ndata["test_mask"]}
         # self.evaluator = NodeEmbeddingEvaluator(self.graph.ndata["label"], self.masks)
         self.evaluator = OGBNArxivDataset.evaluator()
         self.embeddings = None
-        
+
     def compute_coefficients(self, cache: Float[Tensor, "k n d"]):
 
         for feat_idx in range(self.input_features.shape[-1]):
@@ -111,19 +122,32 @@ class ASGC:
                 ]
             )
             x, _, _, _ = lstsq(cp.asarray(A), cp.asarray(b))
-            self.coefficients[:, feat_idx] = torch.as_tensor(x.flatten(), device=self.device)
+            self.coefficients[:, feat_idx] = torch.as_tensor(
+                x.flatten(), device=self.device
+            )
 
     def run(self):
         """Forward pass to generate adaptive spectral graph convolution embeddings."""
         cache = torch.stack(self.sgc(self.graph, self.input_features)).to(self.device)
         self.compute_coefficients(cache)
         print(cache.shape, self.coefficients.shape)
-        self.embeddings = einsum(cache, self.coefficients.to(cache.device), "k n d, k d -> n d")
+        self.embeddings = einsum(
+            cache, self.coefficients.to(cache.device), "k n d, k d -> n d"
+        )
         return self.coefficients, self.embeddings
-        
+
 
 class Config(ConfigBase):
-    def __init__(self, input_features: str, max_epochs: int, k: int, reg: float, lr: float, weight_decay: float, prefix: str):
+    def __init__(
+        self,
+        input_features: str,
+        max_epochs: int,
+        k: int,
+        reg: float,
+        lr: float,
+        weight_decay: float,
+        prefix: str,
+    ):
         super().__init__("0", prefix)
         self.input_features = input_features
         self.max_epochs = max_epochs
@@ -137,7 +161,7 @@ class ASGCDriver(DriverBase):
     def __init__(self, config: Config):
 
         super().__init__(config)
-    
+
     def setup_model(self):
         input_features = torch.load(self.config.input_features)
         return ASGC(
@@ -147,11 +171,11 @@ class ASGCDriver(DriverBase):
             lr=self.config.lr,
             weight_decay=self.config.weight_decay,
         )
-    
+
     def setup_datamodule(self):
         # ASGCDriver doesn't actually use the datamodule
         return None
-    
+
     def get_node_embeddings(self):
         # # Returns the node embeddings from the model
         # if hasattr(self.model, 'embeddings'):
@@ -159,92 +183,107 @@ class ASGCDriver(DriverBase):
         # # If embeddings aren't cached, compute them
         # _, embeddings = self.model.run()
         return self.model.embeddings
-    
+
     def run(self):
         # Override the run method to implement custom behavior
         import os
         import json
-        
+
         # Determine the save directory path
-        save_dir = os.path.join('/home/lcheng/oz318/fusion/logs/ASGC', 
-                              f"{self.model.input_features.shape[-1]}", 
-                              f"{self.config.reg}",
-                              f"{self.config.k}")
-        
+        save_dir = os.path.join(
+            "/home/lcheng/oz318/fusion/logs/ASGC",
+            f"{self.model.input_features.shape[-1]}",
+            f"{self.config.reg}",
+            f"{self.config.k}",
+        )
+
         # Check if results already exist
-        results_path = os.path.join(save_dir, 'results.json')
+        results_path = os.path.join(save_dir, "results.json")
         if os.path.exists(results_path):
             print(f"Results already exist at {results_path}, skipping this trial.")
             # Load and return existing results
-            with open(results_path, 'r') as f:
+            with open(results_path, "r") as f:
                 results = json.load(f)
             return results
-        
+
         # Create the directory if it doesn't exist
         os.makedirs(save_dir, exist_ok=True)
-        
+
         # Run model
         coefficients, embeddings = self.model.run()
-        
+
         # Evaluate results using the appropriate evaluator
         results = {}
         # Use validation set by default
-        results["acc/valid"] = self.model.evaluator.evaluate_arxiv_embeddings(embeddings, split="valid")
-        results["acc/test"] = self.model.evaluator.evaluate_arxiv_embeddings(embeddings, split="test")
-        
-        # Add link prediction results
-        results["lp/auc"] = self.model.evaluator.evaluate_link_prediction(
-            self.model.graph, embeddings
+        results["acc/valid"] = self.model.evaluator.evaluate_arxiv_embeddings(
+            embeddings, split="valid"
         )
-        
+        results["acc/test"] = self.model.evaluator.evaluate_arxiv_embeddings(
+            embeddings, split="test"
+        )
+
+        # Add link prediction results
+        results["lp_uniform/auc"] = self.model.evaluator.evaluate_link_prediction(
+            self.model.graph, 
+            embeddings, 
+            batch_size=100000,  # Add batch size parameter for memory efficiency
+            use_hard_negatives=False  # Default to uniform negatives
+        )
+
         # Save results
-        with open(results_path, 'w') as f:
+        with open(results_path, "w") as f:
             json.dump(results, f, indent=2)
-        
+
         # Save config
-        with open(os.path.join(save_dir, 'config.json'), 'w') as f:
+        with open(os.path.join(save_dir, "config.json"), "w") as f:
             json.dump(self.config.__dict__, f, indent=2)
-        
+
         # Save coefficients
-        torch.save(coefficients, os.path.join(save_dir, 'coefficients.pt'))
-        
+        torch.save(coefficients, os.path.join(save_dir, "coefficients.pt"))
+
         # Save embeddings
-        torch.save(embeddings, os.path.join(save_dir, 'embeddings.pt'))
-        
+        torch.save(embeddings, os.path.join(save_dir, "embeddings.pt"))
+
         return results
 
 
 @app.command()
 def run_experiments():
     from tqdm import tqdm
-    
+
     # Calculate total number of experiments
     dims = [32, 64, 128, 256]
     regs = [0.01, 0.1, 1, 10, 100, 1e3, 1e4]
     ks = [1, 2, 4, 8, 16, 32, 64]
     total_experiments = len(dims) * len(regs) * len(ks)
-    
+
     # Create progress bar
     pbar = tqdm(total=total_experiments, desc="Running experiments")
-    
+
     for dim in dims:
         for reg in regs:
-            for k in ks: 
+            for k in ks:
                 # Call the single trial function
                 result = run(dim=dim, reg=reg, k=k, lr=0.01, weight_decay=5e-4)
                 pbar.update(1)
-                pbar.set_description(f"Dim: {dim}, Reg: {reg}, K: {k}, Acc: {result.get('acc/valid', 0):.4f}")
-    
+                pbar.set_description(
+                    f"Dim: {dim}, Reg: {reg}, K: {k}, Acc: {result.get('acc/valid', 0):.4f}"
+                )
+
     pbar.close()
     print("All experiments completed!")
+
+
 from typing_extensions import Annotated
+
+
 @app.command()
 def run(
     dim: Annotated[int, typer.Argument(help="Feature dimension")],
     reg: Annotated[float, typer.Argument(help="Regularization parameter")],
     k: Annotated[int, typer.Argument(help="Number of hops")],
     lr: Annotated[float, typer.Argument(help="Learning rate")],
-    weight_decay: Annotated[float, typer.Argument(help="Weight decay")]
+    weight_decay: Annotated[float, typer.Argument(help="Weight decay")],
 ):
     """Run a single trial with specified parameters."""
     config = Config(
@@ -254,15 +293,65 @@ def run(
         reg=reg,
         lr=lr,
         weight_decay=weight_decay,
-        prefix=f"{dim}/{reg}/{k}"
+        prefix=f"{dim}/{reg}/{k}",
     )
 
     driver = ASGCDriver(config)
     result = driver.run()
     print(f"Completed single trial with dim={dim}, reg={reg}, k={k}")
     print(f"Results: {result}")
-    
+
     return result
+
+
+import os
+
+
+@app.command()
+def coefficients_to_embeddings(
+    coefficients_path: Annotated[
+        str, typer.Argument(help="Path to the saved coefficients.pt file")
+    ],
+    input_features_path: Annotated[
+        str, typer.Argument(help="Path to the input features")
+    ],
+    use_gpu: Annotated[bool, typer.Option(help="Use GPU for computation")] = True,
+):
+    """Convert saved coefficients to embeddings and save them in the same directory."""
+    print(f"Loading coefficients from {coefficients_path}")
+    device = torch.device("cuda" if (torch.cuda.is_available() and use_gpu) else "cpu")
+
+    # Load coefficients
+    coefficients = torch.load(coefficients_path, map_location=device)
+
+    # Load input features
+    input_features = torch.load(input_features_path, map_location=device)
+
+    # Get k from coefficients shape
+    k = coefficients.shape[0] - 1
+
+    print(f"Using k={k} from coefficients shape")
+
+    # Load the graph
+    graph = OGBNArxivDataset().graph.to(device)
+
+    # Create SGC model and get cache
+    sgc = SGConv(k=k, cached=True)
+    cache = torch.stack(sgc(graph, input_features)).to(device)
+
+    # Compute embeddings
+    print("Computing embeddings using coefficients")
+    embeddings = einsum(cache, coefficients.to(cache.device), "k n d, k d -> n d")
+
+    # Save embeddings in the same directory as coefficients
+    save_dir = os.path.dirname(coefficients_path)
+    embeddings_path = os.path.join(save_dir, "embeddings.pt")
+
+    print(f"Saving embeddings to {embeddings_path}")
+    torch.save(embeddings, embeddings_path)
+
+    print(f"Successfully converted coefficients to embeddings")
+    return embeddings
 
 
 if __name__ == "__main__":

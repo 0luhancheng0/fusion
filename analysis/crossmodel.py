@@ -36,7 +36,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             .agg({
                 "acc/test": ["mean", "std", "max", "min", "count"],
                 # Include link prediction metrics if they exist
-                **({'lp/auc': ["mean", "std", "max", "min"]} if 'lp/auc' in self.df.columns else {}),
+                **({'lp_uniform/auc': ["mean", "std", "max", "min"]} if 'lp_uniform/auc' in self.df.columns else {}),
                 **({'lp_hard/auc': ["mean", "std", "max", "min"]} if 'lp_hard/auc' in self.df.columns else {})
             })
             .reset_index()
@@ -62,8 +62,8 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             
         # Identify which metrics are available
         metrics = ['acc/test']
-        if 'lp/auc' in self.df.columns:
-            metrics.append('lp/auc')
+        if 'lp_uniform/auc' in self.df.columns:
+            metrics.append('lp_uniform/auc')
         if 'lp_hard/auc' in self.df.columns:
             metrics.append('lp_hard/auc')
             
@@ -105,8 +105,8 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         
         # Identify which metrics are available
         metrics = ['acc/test']
-        if 'lp/auc' in self.df.columns:
-            metrics.append('lp/auc')
+        if 'lp_uniform/auc' in self.df.columns:
+            metrics.append('lp_uniform/auc')
         if 'lp_hard/auc' in self.df.columns:
             metrics.append('lp_hard/auc')
             
@@ -141,8 +141,8 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             
         # Identify available metrics
         metrics = ['acc/test']
-        if 'lp/auc' in self.df.columns:
-            metrics.append('lp/auc')
+        if 'lp_uniform/auc' in self.df.columns:
+            metrics.append('lp_uniform/auc')
         if 'lp_hard/auc' in self.df.columns:
             metrics.append('lp_hard/auc')
             
@@ -191,7 +191,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         Create heatmap visualizations for each fusion method, comparing different textual and relational combinations.
         
         Returns:
-            dict: Dictionary containing the three figures for test accuracy, lp/auc and lp_hard/auc
+            dict: Dictionary containing the three figures for test accuracy, lp_uniform/auc and lp_hard/auc
         """
         if self.df.empty:
             print("No data to visualize fusion heatmaps.")
@@ -223,8 +223,8 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         
         # Define metrics to visualize
         metrics = ["acc/test"]
-        if "lp/auc" in fusion_models.columns:
-            metrics.append("lp/auc")
+        if "lp_uniform/auc" in fusion_models.columns:
+            metrics.append("lp_uniform/auc")
         if "lp_hard/auc" in fusion_models.columns:
             metrics.append("lp_hard/auc")
             
@@ -334,8 +334,8 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         
         # Get available metrics
         metrics = ['acc/test']
-        if 'lp/auc' in self.df.columns:
-            metrics.append('lp/auc')
+        if 'lp_uniform/auc' in self.df.columns:
+            metrics.append('lp_uniform/auc')
         if 'lp_hard/auc' in self.df.columns:
             metrics.append('lp_hard/auc')
         
@@ -409,7 +409,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         Create a scatter plot showing trade-offs between node classification and link prediction performance.
         Each point represents a model/experiment, positioned by its accuracy vs LP performance.
         """
-        if self.df.empty or 'acc/test' not in self.df.columns or 'lp/auc' not in self.df.columns:
+        if self.df.empty or 'acc/test' not in self.df.columns or 'lp_uniform/auc' not in self.df.columns:
             print("Missing required metrics for trade-off visualization.")
             return plt.figure()
             
@@ -427,7 +427,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             model_data = self.df[self.df['model_type'] == model]
             ax.scatter(
                 model_data['acc/test'], 
-                model_data['lp/auc'], 
+                model_data['lp_uniform/auc'], 
                 s=80, 
                 color=palette[i], 
                 alpha=0.7,
@@ -435,8 +435,8 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             )
         
         # Add diagonal line representing equal performance on both tasks
-        min_val = min(self.df['acc/test'].min(), self.df['lp/auc'].min())
-        max_val = max(self.df['acc/test'].max(), self.df['lp/auc'].max())
+        min_val = min(self.df['acc/test'].min(), self.df['lp_uniform/auc'].min())
+        max_val = max(self.df['acc/test'].max(), self.df['lp_uniform/auc'].max())
         ax.plot([min_val, max_val], [min_val, max_val], 'k--', alpha=0.3)
         
         # Add labels for interesting points
@@ -444,7 +444,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         for _, row in top_models.iterrows():
             ax.annotate(
                 f"{row['model_type']}",
-                (row['acc/test'], row['lp/auc']),
+                (row['acc/test'], row['lp_uniform/auc']),
                 xytext=(5, 5),
                 textcoords='offset points',
                 fontsize=8
@@ -557,7 +557,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         affects the fusion model performance.
         
         Args:
-            metric: Performance metric to visualize (e.g., 'acc/test', 'lp/auc')
+            metric: Performance metric to visualize (e.g., 'acc/test', 'lp_uniform/auc')
         """
         if self.df.empty:
             print("No data to visualize.")
@@ -700,7 +700,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         Visualize how much performance is gained by fusion compared to individual baselines.
         
         Args:
-            metric: Performance metric to visualize (e.g., 'acc/test', 'lp/auc')
+            metric: Performance metric to visualize (e.g., 'acc/test', 'lp_uniform/auc')
         """
         if self.df.empty:
             print("No data to visualize.")

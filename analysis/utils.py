@@ -109,11 +109,11 @@ def load_baseline_metrics(
              with the structure:
              {
                  'textual': {
-                     'model_name/dim': {'acc/test': value, 'lp/auc': value, ...},
+                     'model_name/dim': {'acc/test': value, 'lp_uniform/auc': value, ...},
                      ...
                  },
                  'relational': {
-                     'dim': {'acc/test': value, 'lp/auc': value, ...},
+                     'dim': {'acc/test': value, 'lp_uniform/auc': value, ...},
                      ...
                  }
              }
@@ -134,7 +134,7 @@ def load_baseline_metrics(
                 baselines['textual'][key] = {}
                 
                 # Add all available metrics
-                for metric in ['acc/test', 'acc/valid', 'lp/auc', 'lp_hard/auc']:
+                for metric in ['acc/test', 'acc/valid', 'lp_uniform/auc', 'lp_hard/auc']:
                     if metric in row and not pd.isna(row[metric]):
                         baselines['textual'][key][metric] = row[metric]
     
@@ -144,7 +144,7 @@ def load_baseline_metrics(
         node2vec_analyzer = Node2VecAnalyzer(dpi=dpi, cmap=cmap, figsize=figsize)
         # Group by dimension and average the metrics
         if not node2vec_analyzer.df.empty:
-            metrics = ['acc/test', 'acc/val', 'lp/auc', 'lp_hard/auc']
+            metrics = ['acc/test', 'acc/val', 'lp_uniform/auc', 'lp_hard/auc']
             dim_metrics = node2vec_analyzer.df.groupby('dim')[metrics].mean().reset_index()
             
             for _, row in dim_metrics.iterrows():
@@ -178,7 +178,7 @@ def load_baseline_metrics(
                     baselines['relational'][dim] = {}
                 
                 # Add metrics, with "asgc_" prefix to distinguish from Node2Vec
-                for metric in ['acc/test', 'acc/valid', 'lp/auc', 'lp_hard/auc']:
+                for metric in ['acc/test', 'acc/valid', 'lp_uniform/auc', 'lp_hard/auc']:
                     if metric in row and not pd.isna(row[metric]):
                         baselines['relational'][f"asgc_{dim}"] = {}
                         baselines['relational'][f"asgc_{dim}"][metric] = row[metric]

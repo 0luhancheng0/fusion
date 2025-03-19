@@ -11,6 +11,8 @@ from dataloading import OGBNArxivDataset
 from dgl.nn.pytorch.link import EdgePredictor
 from tqdm import tqdm
 from torchmetrics.functional.classification import auroc
+from rich.progress import track
+from rich import print
 
 app = typer.Typer(help="Generate hard negative samples for ogbn-arxiv dataset")
 
@@ -75,7 +77,6 @@ def _load_existing_results(results_path: Path) -> Dict:
         try:
             with open(results_path, 'r') as f:
                 existing_results = json.load(f)
-            print(f"Loaded existing results from {results_path}")
         except Exception as e:
             print(f"Error loading existing results: {e}")
     return existing_results
@@ -173,7 +174,8 @@ def _evaluate_embeddings(
     overall_results = {}
     
     # Process each embedding file
-    for embed_file in tqdm(embed_files, desc="Evaluating embeddings"):
+
+    for embed_file in track(embed_files, label="Evaluating embeddings"):
         file_name = embed_file.name
         print(f"\nEvaluating {file_name}...")
         
@@ -215,8 +217,8 @@ def _evaluate_embeddings(
             print(f"Error evaluating {embed_file}: {e}")
             import traceback
             traceback.print_exc()
-    
-    # Print summary
+        
+    # print summary
     print("\n==== Evaluation Summary ====")
     for name, score in sorted(overall_results.items(), key=lambda x: x[1], reverse=True):
         print(f"{name}: {score:.4f}")
@@ -335,7 +337,7 @@ def evaluate_hard_negatives(
     hard_negatives_path: str = typer.Option("logs/arxiv_hard_negatives.pt", help="Path to pre-generated hard negatives"),
     batch_size: int = typer.Option(100000, help="Batch size for evaluation to avoid OOM"),
     use_gpu: bool = typer.Option(True, help="Use GPU if available"),
-    file_pattern: str = typer.Option("*.pt", help="File pattern to match embedding files"),
+    file_pattern: str = typer.Option("embeddings.pt", help="File pattern to match embedding files"),
     result_key: str = typer.Option("lp_hard/auc", help="Key to use for storing hard negative link prediction results")
 ):
     """
@@ -357,7 +359,7 @@ def evaluate_uniform_negatives(
     uniform_negatives_path: str = typer.Option("logs/arxiv_uniform_negatives.pt", help="Path to pre-generated uniform negatives"),
     batch_size: int = typer.Option(100000, help="Batch size for evaluation to avoid OOM"),
     use_gpu: bool = typer.Option(True, help="Use GPU if available"),
-    file_pattern: str = typer.Option("*.pt", help="File pattern to match embedding files"),
+    file_pattern: str = typer.Option("embeddings.pt", help="File pattern to match embedding files"),
     result_key: str = typer.Option("lp_uniform/auc", help="Key to use for storing uniform negative link prediction results")
 ):
     """
@@ -380,7 +382,7 @@ def evaluate_all_negatives(
     uniform_negatives_path: str = typer.Option("logs/arxiv_uniform_negatives.pt", help="Path to pre-generated uniform negatives"),
     batch_size: int = typer.Option(100000, help="Batch size for evaluation to avoid OOM"),
     use_gpu: bool = typer.Option(True, help="Use GPU if available"),
-    file_pattern: str = typer.Option("*.pt", help="File pattern to match embedding files")
+    file_pattern: str = typer.Option("embeddings.pt", help="File pattern to match embedding files")
 ):
     """
     Evaluate link prediction performance using both hard and uniform negatives in one run.
@@ -410,6 +412,85 @@ def evaluate_all_negatives(
         "hard_negatives": hard_results,
         "uniform_negatives": uniform_results
     }
+
+@app.command()
+def collect_all_results(
+    input_dir: str = typer.Option("logs", help="Directory containing results.json files"),
+    output_dir: str = typer.Option(None, help="Output directory for the combined results (defaults to input_dir)"),
+    output_file: str = typer.Option("all_results.json", help="Filename for the combined results"),
+    include_empty: bool = typer.Option(False, help="Include directories without results.json files"),
+    structured_output: bool = typer.Option(True, help="Structure output to reflect directory hierarchy")
+):
+    """
+    Collect and combine all results.json files in the input directory and its subdirectories
+    into a single all_results.json file. Results are organized by their relative paths.
+    """
+    input_path = Path(input_dir)
+    if not input_path.exists():
+        print(f"Input directory {input_dir} does not exist")
+        return
+    
+    # If output_dir is not specified, use input_dir
+    output_path = Path(output_dir) if output_dir else input_path
+    output_path.mkdir(exist_ok=True, parents=True)
+    save_path = output_path / output_file
+    
+    # Find all results.json files
+    results_files = list(input_path.rglob("results.json"))
+    if not results_files:
+        print(f"No results.json files found in {input_dir} or subdirectories")
+        return
+    
+    print(f"Found {len(results_files)} results.json files")
+    
+    # Combine results
+    combined_results = {}
+    
+    for results_file in track(results_files, description="Processing results files"):
+        try:
+            # Get relative path to make it easier to identify
+            rel_path = results_file.relative_to(input_path)
+            parent_dir = str(rel_path.parent)
+            
+            # Load results
+            with open(results_file, 'r') as f:
+                results = json.load(f)
+            
+            if not results and not include_empty:
+                print(f"Skipping empty results file: {parent_dir}/results.json")
+                continue
+                
+            # Add to combined results, using parent directory as key
+            if structured_output:
+                # Create nested structure based on directory path
+                current_level = combined_results
+                path_parts = parent_dir.split(os.sep) if parent_dir != '.' else []
+                
+                # Navigate through the path parts to create the nested structure
+                for i, part in enumerate(path_parts):
+                    if part not in current_level:
+                        current_level[part] = {}
+                    
+                    # If we're at the last part, add the results
+                    if i == len(path_parts) - 1:
+                        current_level[part].update(results)
+                    else:
+                        current_level = current_level[part]
+            else:
+                # Flat structure - just use the parent directory path as key
+                combined_results[parent_dir] = results
+            
+            print(f"Processed: {parent_dir}")
+            
+        except Exception as e:
+            print(f"Error processing {results_file}: {e}")
+    
+    # Save combined results
+    with open(save_path, 'w') as f:
+        json.dump(combined_results, f, indent=2)
+    
+    print(f"Combined results saved to {save_path}")
+    return combined_results
 
 if __name__ == "__main__":
     try:
