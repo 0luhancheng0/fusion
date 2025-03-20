@@ -222,6 +222,7 @@ def fusion(
     latent_dim: Optional[int] = typer.Option(None, help="Filter by specific latent dimension"),
     textual_model: Optional[str] = typer.Option(None, help="Filter by specific textual model"),
     relational_model: Optional[str] = typer.Option(None, help="Filter by specific relational model"),
+    output_modalities: Optional[str] = typer.Option(None, help="Filter by output modalities (comma-separated, default for transformer: textual,relational)"),
     dpi: int = typer.Option(300, help="DPI for saved figures"),
     cmap: ColorMap = typer.Option(ColorMap.VIRIDIS, help="Colormap to use for plots"),
     figsize: str = typer.Option("12,8", help="Figure size as width,height", callback=parse_figsize),
@@ -249,15 +250,27 @@ def fusion(
     # Get the appropriate analyzer class
     analyzer_class = fusion_analyzers[fusion_type.lower()]
     
+    # Handle output modalities for transformer fusion
+    valid_output_modalities = None
+    if fusion_type.lower() == "transformer" and output_modalities is not None:
+        valid_output_modalities = [m.strip() for m in output_modalities.split(",")]
+        typer.echo(f"Filtering for output modalities: {', '.join(valid_output_modalities)}")
+    
     # Initialize analyzer with common options
-    analyzer = analyzer_class(
-        dpi=dpi,
-        cmap=cmap,
-        figsize=figsize,
-        remove_outliers=remove_outliers,
-        outlier_params=build_outlier_params(metrics, outlier_method, outlier_threshold)
+    analyzer_kwargs = {
+        "dpi": dpi,
+        "cmap": cmap,
+        "figsize": figsize,
+        "remove_outliers": remove_outliers,
+        "outlier_params": build_outlier_params(metrics, outlier_method, outlier_threshold)
         if remove_outliers else None
-    )
+    }
+    
+    # Add valid_output_modalities if it's the transformer fusion analyzer
+    if fusion_type.lower() == "transformer":
+        analyzer_kwargs["valid_output_modalities"] = valid_output_modalities
+    
+    analyzer = analyzer_class(**analyzer_kwargs)
     
     # Apply filters if requested
     filters = []
@@ -276,7 +289,6 @@ def fusion(
     
     # Run analysis
     results = analyzer.run()
-    
     
     return results
 

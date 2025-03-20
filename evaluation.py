@@ -392,7 +392,7 @@ class NodeEmbeddingEvaluator:
     @staticmethod
     def evaluate_link_prediction(
         graph, embeddings, predictor=EdgePredictor("cos"), neg_ratio=1.0, eval_fn=auroc, batch_size=100000,
-        use_hard_negatives=False, negative_samples_path=None
+        use_hard_negatives=False, negative_samples_path=None, check_invalid_values=True
     ):
         """
         Evaluate link prediction with batched processing to avoid OOM errors.
@@ -415,7 +415,7 @@ class NodeEmbeddingEvaluator:
             RuntimeError: If negative samples cannot be loaded
         """
         # Check for invalid values in embeddings
-        if (torch.isnan(embeddings).any() or 
+        if check_invalid_values and (torch.isnan(embeddings).any() or 
             torch.isinf(embeddings).any()):
             
             # Calculate statistics for detailed warning

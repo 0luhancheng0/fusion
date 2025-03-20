@@ -14,6 +14,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         figsize=(6.4, 4.8),
         remove_outliers=False,
         outlier_params=None,
+        valid_output_modalities=None,
     ):
         super().__init__(
             "TransformerFusion",
@@ -23,6 +24,8 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
             remove_outliers=remove_outliers,
             outlier_params=outlier_params,
         )
+        # Default valid output modalities if not specified
+        self.valid_output_modalities = ["textual", "relational"] if valid_output_modalities is None else valid_output_modalities
 
     def post_process(self):
         self.df[
@@ -310,6 +313,25 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         
     def run(self):
         """Run all available visualizations for transformer fusion analysis."""
+        # Ensure we have processed the data
+        if "output_modality" not in self.df.columns:
+            self.post_process()
+        
+        # Store original dataframe
+        original_df = self.df.copy()
+        
+        # Filter to include only valid output modalities
+        if self.valid_output_modalities:
+            self.df = self.df[self.df["output_modality"].isin(self.valid_output_modalities)]
+            print(f"Filtered to include only {self.valid_output_modalities} output modalities. {len(self.df)} records remain.")
+        
+        if self.df.empty:
+            print("No data to analyze after filtering for valid output modalities.")
+            # Restore original dataframe
+            self.df = original_df
+            return {}
+        
+        # Run the analysis with filtered data
         results = super().run()
 
         try:
@@ -330,5 +352,8 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
             print("Parameter importance analysis created.")
         except Exception as e:
             print(f"Error creating parameter importance analysis: {e}")
-
+        
+        # Restore original dataframe
+        self.df = original_df
+        
         return results

@@ -460,25 +460,8 @@ def collect_all_results(
                 print(f"Skipping empty results file: {parent_dir}/results.json")
                 continue
                 
-            # Add to combined results, using parent directory as key
-            if structured_output:
-                # Create nested structure based on directory path
-                current_level = combined_results
-                path_parts = parent_dir.split(os.sep) if parent_dir != '.' else []
-                
-                # Navigate through the path parts to create the nested structure
-                for i, part in enumerate(path_parts):
-                    if part not in current_level:
-                        current_level[part] = {}
-                    
-                    # If we're at the last part, add the results
-                    if i == len(path_parts) - 1:
-                        current_level[part].update(results)
-                    else:
-                        current_level = current_level[part]
-            else:
-                # Flat structure - just use the parent directory path as key
-                combined_results[parent_dir] = results
+            # Use parent directory path as key, store results directly
+            combined_results[parent_dir] = results
             
             print(f"Processed: {parent_dir}")
             
