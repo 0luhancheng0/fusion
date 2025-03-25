@@ -351,14 +351,18 @@ class OGBNArxivDataset(OGBDataset):
 
     @staticmethod
     def evaluator():
+        from constants import HARD_NEGATIVE_SAMPLES, UNIFORM_NEGATIVE_SAMPLES
         graph = OGBNArxivDataset.load_graph()
         return NodeEmbeddingEvaluator(
-            graph.ndata["label"],
-            {
+            labels=graph.ndata["label"],
+            masks={
                 "train": graph.ndata["train_mask"].type(torch.bool),
                 "valid": graph.ndata["val_mask"].type(torch.bool),
                 "test": graph.ndata["test_mask"].type(torch.bool),
             },
+            graph=graph,  # Add the graph parameter explicitly
+            hard_negative_path=HARD_NEGATIVE_SAMPLES,
+            uniform_negative_path=UNIFORM_NEGATIVE_SAMPLES,
         )
 
 

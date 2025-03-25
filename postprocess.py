@@ -46,39 +46,14 @@ def _determine_sample_size(
         print(f"Using {edge_multiplier}x the number of edges: {num_samples} samples")
     return num_samples
 
-def _load_embeddings(
-    embed_file: Path, 
-    device: torch.device
-) -> torch.Tensor:
-    """Load embeddings from file and handle different storage formats."""
-    try:
-        embeddings = torch.load(embed_file)
-        if isinstance(embeddings, dict):
-            # Handle case where embeddings are stored as a dict
-            if 'embeddings' in embeddings:
-                embeddings = embeddings['embeddings']
-            elif 'embedding' in embeddings:
-                embeddings = embeddings['embedding']
-            else:
-                # Use the first value if keys don't match expected names
-                embeddings = next(iter(embeddings.values()))
-                
-        embeddings = embeddings.to(device)
-        print(f"Loaded embeddings with shape: {embeddings.shape}")
-        return embeddings
-    except Exception as e:
-        print(f"Error loading embeddings from {embed_file}: {e}")
-        raise
 
 def _load_existing_results(results_path: Path) -> Dict:
     """Load existing results from a JSON file."""
     existing_results = {}
     if results_path.exists():
-        try:
-            with open(results_path, 'r') as f:
-                existing_results = json.load(f)
-        except Exception as e:
-            print(f"Error loading existing results: {e}")
+        with open(results_path, 'r') as f:
+            existing_results = json.load(f)
+
     return existing_results
 
 def _save_results(results_path: Path, results: Dict) -> None:
@@ -87,97 +62,20 @@ def _save_results(results_path: Path, results: Dict) -> None:
         json.dump(results, f, indent=2)
     print(f"Results saved to {results_path}")
 
-def _evaluate_link_prediction(
-    embeddings: torch.Tensor,
-    pos_src: torch.Tensor,
-    pos_dst: torch.Tensor,
-    neg_src: torch.Tensor,
-    neg_dst: torch.Tensor,
-    batch_size: int,
-    device: torch.device
-) -> float:
-    """Evaluate link prediction using batched processing."""
-    predictor = EdgePredictor("cos")
-    
-    # Process positive edges in batches
-    all_pos_scores = []
-    for i in range(0, len(pos_src), batch_size):
-        batch_src = pos_src[i:i+batch_size]
-        batch_dst = pos_dst[i:i+batch_size]
-        
-        with torch.no_grad():
-            batch_pos_scores = predictor(embeddings[batch_src], embeddings[batch_dst]).squeeze()
-            all_pos_scores.append(batch_pos_scores)
-    
-    pos_scores = torch.cat(all_pos_scores)
-    
-    # Process negative edges in batches
-    all_neg_scores = []
-    for i in range(0, len(neg_src), batch_size):
-        batch_neg_src = neg_src[i:i+batch_size]
-        batch_neg_dst = neg_dst[i:i+batch_size]
-        
-        with torch.no_grad():
-            batch_neg_scores = predictor(embeddings[batch_neg_src], embeddings[batch_neg_dst]).squeeze()
-            all_neg_scores.append(batch_neg_scores)
-    
-    neg_scores = torch.cat(all_neg_scores)
-    
-    # Create labels and evaluate
-    labels = torch.cat([
-        torch.ones(pos_scores.shape[0], device=device),
-        torch.zeros(neg_scores.shape[0], device=device)
-    ]).type(torch.bool)
-    
-    scores = torch.cat([pos_scores, neg_scores])
-    
-    # Calculate AUROC
-    return auroc(scores, labels, task="binary").item()
-
-def _evaluate_embeddings(
-    embeddings_dir: str,
-    negatives_path: str,
-    batch_size: int,
-    use_gpu: bool,
-    file_pattern: str,
-    result_key: str
+@app.command()
+def evaluate_link_prediction(
+    embeddings_dir: str = "/home/lcheng/oz318/fusion/logs",
+    use_gpu: bool = True,
+    file_pattern: str = "**/embeddings.pt",
 ) -> Dict:
     """Common evaluation function for both hard and uniform negative samples."""
     # Load graph
     graph = _load_graph(use_gpu=use_gpu, add_reverse=False)
     device = graph.device
-    
-    # Load negative samples
-    try:
-        neg_data = torch.load(negatives_path)
-        neg_src = neg_data['src'].to(device)
-        neg_dst = neg_data['dst'].to(device)
-        print(f"Loaded {len(neg_src)} negative pairs from {negatives_path}")
-    except Exception as e:
-        print(f"Error loading negatives: {e}")
-        return {}
-    
-    # Get real edges
-    pos_src, pos_dst = graph.edges()
-    
-    # Find all embedding files recursively
+    evaluator = OGBNArxivDataset().evaluator()
     embedding_dir = Path(embeddings_dir)
     embed_files = list(embedding_dir.rglob(file_pattern))
-    
-    if not embed_files:
-        print(f"No embedding files found in {embeddings_dir} or subdirectories matching pattern {file_pattern}")
-        return {}
-    
-    print(f"Found {len(embed_files)} embedding files")
-    
-    # Prepare results
-    overall_results = {}
-    
-    # Process each embedding file
-
-    for embed_file in track(embed_files, label="Evaluating embeddings"):
-        file_name = embed_file.name
-        print(f"\nEvaluating {file_name}...")
+    for embed_file in track(embed_files, description="Evaluating embeddings"):
         
         # Get directory containing the embedding file
         embedding_parent = embed_file.parent
@@ -187,68 +85,12 @@ def _evaluate_embeddings(
         existing_results = _load_existing_results(results_path)
         
         # Load embeddings
-        try:
-            embeddings = _load_embeddings(embed_file, device)
-        except Exception:
-            continue
+        embeddings = torch.load(embed_file, map_location=device)
+        results_dict = evaluator.evaluate_link_prediction(embeddings)
         
-        # Evaluate link prediction
-        try:
-            auc_score = _evaluate_link_prediction(
-                embeddings=embeddings,
-                pos_src=pos_src,
-                pos_dst=pos_dst,
-                neg_src=neg_src,
-                neg_dst=neg_dst,
-                batch_size=batch_size,
-                device=device
-            )
-            
-            print(f"AUROC: {auc_score:.4f}")
-            
-            # Add result to existing results
-            existing_results[result_key] = float(auc_score)
-            overall_results[file_name] = auc_score
-            
-            # Save updated results
-            _save_results(results_path, existing_results)
-            
-        except Exception as e:
-            print(f"Error evaluating {embed_file}: {e}")
-            import traceback
-            traceback.print_exc()
-        
-    # print summary
-    print("\n==== Evaluation Summary ====")
-    for name, score in sorted(overall_results.items(), key=lambda x: x[1], reverse=True):
-        print(f"{name}: {score:.4f}")
-    
-    # Save overall results
-    _save_overall_results(embedding_dir, result_key, overall_results)
-    
-    return overall_results
+        existing_results.update(results_dict)        
 
-def _save_overall_results(
-    embedding_dir: Path,
-    result_key: str,
-    overall_results: Dict
-) -> None:
-    """Save overall results to all_results.json in the embeddings directory."""
-    all_results_path = embedding_dir / "all_results.json"
-    
-    # Load existing overall results if available
-    existing_overall_results = _load_existing_results(all_results_path)
-    
-    # Update with new results
-    if result_key not in existing_overall_results:
-        existing_overall_results[result_key] = {}
-    
-    existing_overall_results[result_key].update(
-        {name: float(score) for name, score in overall_results.items()}
-    )
-    
-    # Save updated overall results
-    _save_results(all_results_path, existing_overall_results)
+        _save_results(results_path, existing_results)
 
 @app.command()
 def generate_hard_negatives(
@@ -332,94 +174,11 @@ def generate_uniform_negatives(
     return src, dst
 
 @app.command()
-def evaluate_hard_negatives(
-    embeddings_dir: str = typer.Option("embeddings", help="Directory containing embedding files"),
-    hard_negatives_path: str = typer.Option("logs/arxiv_hard_negatives.pt", help="Path to pre-generated hard negatives"),
-    batch_size: int = typer.Option(100000, help="Batch size for evaluation to avoid OOM"),
-    use_gpu: bool = typer.Option(True, help="Use GPU if available"),
-    file_pattern: str = typer.Option("embeddings.pt", help="File pattern to match embedding files"),
-    result_key: str = typer.Option("lp_hard/auc", help="Key to use for storing hard negative link prediction results")
-):
-    """
-    Evaluate link prediction performance of all embeddings using pre-generated hard negatives.
-    Results are added to results.json files in each embedding directory.
-    """
-    return _evaluate_embeddings(
-        embeddings_dir=embeddings_dir,
-        negatives_path=hard_negatives_path,
-        batch_size=batch_size,
-        use_gpu=use_gpu,
-        file_pattern=file_pattern,
-        result_key=result_key
-    )
-
-@app.command()
-def evaluate_uniform_negatives(
-    embeddings_dir: str = typer.Option("embeddings", help="Directory containing embedding files"),
-    uniform_negatives_path: str = typer.Option("logs/arxiv_uniform_negatives.pt", help="Path to pre-generated uniform negatives"),
-    batch_size: int = typer.Option(100000, help="Batch size for evaluation to avoid OOM"),
-    use_gpu: bool = typer.Option(True, help="Use GPU if available"),
-    file_pattern: str = typer.Option("embeddings.pt", help="File pattern to match embedding files"),
-    result_key: str = typer.Option("lp_uniform/auc", help="Key to use for storing uniform negative link prediction results")
-):
-    """
-    Evaluate link prediction performance of all embeddings using pre-generated uniform negatives.
-    Results are added to results.json files in each embedding directory.
-    """
-    return _evaluate_embeddings(
-        embeddings_dir=embeddings_dir,
-        negatives_path=uniform_negatives_path,
-        batch_size=batch_size,
-        use_gpu=use_gpu,
-        file_pattern=file_pattern,
-        result_key=result_key
-    )
-
-@app.command()
-def evaluate_all_negatives(
-    embeddings_dir: str = typer.Option("embeddings", help="Directory containing embedding files"),
-    hard_negatives_path: str = typer.Option("logs/arxiv_hard_negatives.pt", help="Path to pre-generated hard negatives"),
-    uniform_negatives_path: str = typer.Option("logs/arxiv_uniform_negatives.pt", help="Path to pre-generated uniform negatives"),
-    batch_size: int = typer.Option(100000, help="Batch size for evaluation to avoid OOM"),
-    use_gpu: bool = typer.Option(True, help="Use GPU if available"),
-    file_pattern: str = typer.Option("embeddings.pt", help="File pattern to match embedding files")
-):
-    """
-    Evaluate link prediction performance using both hard and uniform negatives in one run.
-    """
-    print(f"Running evaluation with both hard and uniform negatives")
-    
-    hard_results = _evaluate_embeddings(
-        embeddings_dir=embeddings_dir,
-        negatives_path=hard_negatives_path,
-        batch_size=batch_size,
-        use_gpu=use_gpu,
-        file_pattern=file_pattern,
-        result_key="lp_hard/auc"
-    )
-    
-    uniform_results = _evaluate_embeddings(
-        embeddings_dir=embeddings_dir,
-        negatives_path=uniform_negatives_path,
-        batch_size=batch_size,
-        use_gpu=use_gpu,
-        file_pattern=file_pattern,
-        result_key="lp_uniform/auc"
-    )
-    
-    # Return combined results
-    return {
-        "hard_negatives": hard_results,
-        "uniform_negatives": uniform_results
-    }
-
-@app.command()
 def collect_all_results(
     input_dir: str = typer.Option("logs", help="Directory containing results.json files"),
     output_dir: str = typer.Option(None, help="Output directory for the combined results (defaults to input_dir)"),
     output_file: str = typer.Option("all_results.json", help="Filename for the combined results"),
     include_empty: bool = typer.Option(False, help="Include directories without results.json files"),
-    structured_output: bool = typer.Option(True, help="Structure output to reflect directory hierarchy")
 ):
     """
     Collect and combine all results.json files in the input directory and its subdirectories

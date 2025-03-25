@@ -149,10 +149,12 @@ class DriverBase(ABC):
         self.results = {
             **self.validate(),
             **self.test(),
-            "lp_uniform/auc": self.evaluator.evaluate_link_prediction(
-                self.graph, self.get_node_embeddings()
-            ),
         }
+        
+        # Add link prediction evaluation with uniform negatives
+        self.results.update(self.evaluator.evaluate_link_prediction(embeddings=self.get_node_embeddings()))
+
+            
         return self.results
 
     def setup_evaluator(self):

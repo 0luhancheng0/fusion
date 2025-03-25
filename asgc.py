@@ -221,14 +221,24 @@ class ASGCDriver(DriverBase):
         results["acc/test"] = self.model.evaluator.evaluate_arxiv_embeddings(
             embeddings, split="test"
         )
-
+        # from constants import UNIFORM_NEGATIVE_SAMPLES
+        # negative_samples = self.model.evaluator.load_negative_samples(
+        #     load_path=UNIFORM_NEGATIVE_SAMPLES,
+        # )
         # Add link prediction results
-        results["lp_uniform/auc"] = self.model.evaluator.evaluate_link_prediction(
-            self.model.graph, 
-            embeddings, 
-            batch_size=100000,  # Add batch size parameter for memory efficiency
-            use_hard_negatives=False  # Default to uniform negatives
-        )
+        results.update(self.model.evaluator.evaluate_link_prediction(
+            embeddings=embeddings,
+        ))
+        # results["lp_uniform/auc"] = self.model.evaluator.evaluate_link_prediction(
+        #     embeddings=embeddings,
+        #     use_hard_negatives=False
+        # )
+
+        # # Add hard negative evaluation
+        # results["lp_hard/auc"] = self.model.evaluator.evaluate_link_prediction(
+        #     embeddings=embeddings,
+        #     use_hard_negatives=True
+        # )
 
         # Save results
         with open(results_path, "w") as f:
