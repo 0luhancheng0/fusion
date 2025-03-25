@@ -25,26 +25,8 @@ def _load_graph(use_gpu: bool = True, add_reverse: bool = False) -> dgl.DGLGraph
     print(f"Graph statistics: {graph.num_nodes()} nodes, {graph.num_edges()} edges")
     return graph
 
-def _prepare_output_directory(output_dir: str, output_file: str) -> Path:
-    """Create output directory if it doesn't exist and return the save path."""
-    out_dir = Path(output_dir)
-    out_dir.mkdir(exist_ok=True, parents=True)
-    save_path = out_dir / output_file
-    return save_path
 
-def _determine_sample_size(
-    graph: dgl.DGLGraph, 
-    edge_multiplier: float = 1.0, 
-    absolute_samples: Optional[int] = None
-) -> int:
-    """Determine number of samples based on parameters."""
-    if absolute_samples is not None:
-        num_samples = absolute_samples
-        print(f"Using specified sample count: {num_samples}")
-    else:
-        num_samples = int(graph.num_edges() * edge_multiplier)
-        print(f"Using {edge_multiplier}x the number of edges: {num_samples} samples")
-    return num_samples
+
 
 
 def _load_existing_results(results_path: Path) -> Dict:
@@ -92,86 +74,9 @@ def evaluate_link_prediction(
 
         _save_results(results_path, existing_results)
 
-@app.command()
-def generate_hard_negatives(
-    output_dir: str = typer.Option("logs", help="Directory to save the generated samples"),
-    output_file: str = typer.Option("arxiv_hard_negatives.pt", help="Filename for the samples"),
-    edge_multiplier: float = typer.Option(1.0, help="Multiplier for number of samples (relative to graph edges)"),
-    absolute_samples: Optional[int] = typer.Option(None, help="Absolute number of samples (overrides multiplier if set)"),
-    max_samples_per_node: int = typer.Option(20, help="Maximum samples to generate per source node"),
-    use_gpu: bool = typer.Option(True, help="Use GPU if available"),
-    force_regenerate: bool = typer.Option(False, help="Force regeneration even if samples exist"),
-    fallback_random: bool = typer.Option(True, help="Fall back to random sampling if not enough hard negatives"),
-    num_workers: int = typer.Option(None, help="Number of worker processes for multiprocessing"),
-    node_sampling_fraction: float = typer.Option(0.2, help="Fraction of nodes to sample for hard negative generation")
-):
-    """
-    Generate and save hard negative samples for the ogbn-arxiv dataset with customizable parameters.
-    """
-    print("Loading ogbn-arxiv dataset...")
-    # Load graph with reverse edges for hard negative sampling
-    graph = _load_graph(use_gpu=use_gpu, add_reverse=True)
-    
-    # Prepare output path
-    save_path = _prepare_output_directory(output_dir, output_file)
-    
-    # Determine sample size
-    num_samples = _determine_sample_size(graph, edge_multiplier, absolute_samples)
-    
-    # Generate hard negatives
-    print(f"Generating {num_samples} hard negative samples...")
-    src, dst = NodeEmbeddingEvaluator.optimized_hard_negative_sampling(
-        graph=graph,
-        num_samples=num_samples,
-        fallback_random=fallback_random,
-        save_path=save_path,
-        load_path=save_path if not force_regenerate else None,
-        force_regenerate=force_regenerate,
-        max_samples_per_node=max_samples_per_node,
-        num_workers=num_workers,
-        node_sampling_fraction=node_sampling_fraction
-    )
-    
-    print(f"Successfully generated {len(src)} hard negative samples")
-    print(f"Saved to {save_path}")
-    
-    # Return the tensors in case they're needed for further processing
-    return src, dst
 
-@app.command()
-def generate_uniform_negatives(
-    output_dir: str = typer.Option("logs", help="Directory to save the generated samples"),
-    output_file: str = typer.Option("arxiv_uniform_negatives.pt", help="Filename for the samples"),
-    edge_multiplier: float = typer.Option(1.0, help="Multiplier for number of samples (relative to graph edges)"),
-    absolute_samples: Optional[int] = typer.Option(None, help="Absolute number of samples (overrides multiplier if set)"),
-    use_gpu: bool = typer.Option(True, help="Use GPU if available")
-):
-    """
-    Generate and save uniformly distributed negative samples for the ogbn-arxiv dataset.
-    """
-    print("Loading ogbn-arxiv dataset...")
-    # Load graph without reverse edges for uniform sampling
-    graph = _load_graph(use_gpu=use_gpu, add_reverse=False)
-    
-    # Prepare output path
-    save_path = _prepare_output_directory(output_dir, output_file)
-    
-    # Determine sample size
-    num_samples = _determine_sample_size(graph, edge_multiplier, absolute_samples)
-    
-    # Generate uniform negative samples
-    print(f"Generating {num_samples} uniform negative samples...")
-    src, dst = NodeEmbeddingEvaluator.generate_uniform_negative_samples(
-        graph=graph,
-        num_samples=num_samples,
-        save_path=save_path
-    )
-    
-    print(f"Successfully generated {len(src)} uniform negative samples")
-    print(f"Saved to {save_path}")
-    
-    # Return the tensors in case they're needed for further processing
-    return src, dst
+
+
 
 @app.command()
 def collect_all_results(
