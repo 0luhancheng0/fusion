@@ -251,10 +251,10 @@ def fusion(
     analyzer_class = fusion_analyzers[fusion_type.lower()]
     
     # Handle output modalities for transformer fusion
-    valid_output_modalities = None
-    if fusion_type.lower() == "transformer" and output_modalities is not None:
-        valid_output_modalities = [m.strip() for m in output_modalities.split(",")]
-        typer.echo(f"Filtering for output modalities: {', '.join(valid_output_modalities)}")
+    # valid_output_modalities = None
+    # if fusion_type.lower() == "transformer" and output_modalities is not None:
+    #     valid_output_modalities = [m.strip() for m in output_modalities.split(",")]
+    #     typer.echo(f"Filtering for output modalities: {', '.join(valid_output_modalities)}")
     
     # Initialize analyzer with common options
     analyzer_kwargs = {
@@ -267,8 +267,8 @@ def fusion(
     }
     
     # Add valid_output_modalities if it's the transformer fusion analyzer
-    if fusion_type.lower() == "transformer":
-        analyzer_kwargs["valid_output_modalities"] = valid_output_modalities
+    # if fusion_type.lower() == "transformer":
+    #     analyzer_kwargs["valid_output_modalities"] = valid_output_modalities
     
     analyzer = analyzer_class(**analyzer_kwargs)
     

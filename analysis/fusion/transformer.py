@@ -14,7 +14,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         figsize=(6.4, 4.8),
         remove_outliers=False,
         outlier_params=None,
-        valid_output_modalities=None,
+        # valid_output_modalities=None,
     ):
         super().__init__(
             "TransformerFusion",
@@ -25,7 +25,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
             outlier_params=outlier_params,
         )
         # Default valid output modalities if not specified
-        self.valid_output_modalities = ["textual", "relational"] if valid_output_modalities is None else valid_output_modalities
+        # self.valid_output_modalities = ["textual", "relational"] if valid_output_modalities is None else valid_output_modalities
 
     def post_process(self):
         self.df[
@@ -321,9 +321,9 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         original_df = self.df.copy()
         
         # Filter to include only valid output modalities
-        if self.valid_output_modalities:
-            self.df = self.df[self.df["output_modality"].isin(self.valid_output_modalities)]
-            print(f"Filtered to include only {self.valid_output_modalities} output modalities. {len(self.df)} records remain.")
+
+        # self.df = self.df[self.df["output_modality"].isin(self.valid_output_modalities)]
+        # print(f"Filtered to include only {self.valid_output_modalities} output modalities. {len(self.df)} records remain.")
         
         if self.df.empty:
             print("No data to analyze after filtering for valid output modalities.")
