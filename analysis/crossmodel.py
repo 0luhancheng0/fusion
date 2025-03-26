@@ -9,23 +9,19 @@ from .asgc import ASGCAnalyzer
 from pathlib import Path
 
 from .base import AbstractAnalyzer
-from .utils import load_baseline_metrics
+from .utils import load_baseline_metrics as load_utils_baseline_metrics
 
 
 class CrossModelAnalyzer(AbstractAnalyzer):
     """Compare results across different fusion models."""
 
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
-                 remove_outliers=False, outlier_params=None):
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
         # Use a common parent directory that contains all model types
-        super().__init__("/home/lcheng/oz318/fusion/logs", dpi, cmap, figsize, 
-                        remove_outliers=remove_outliers, outlier_params=outlier_params)
+        super().__init__("/home/lcheng/oz318/fusion/logs", dpi, cmap, figsize)
 
     def analyze(self):
         """Analyze and compare results across different fusion models."""
-        if self.df.empty:
-            print("No data to analyze.")
-            return None
+
 
         # Extract model type from path
         self.df["model_type"] = self.df["path"].str.extract(r"/logs/([^/]+)/")
@@ -35,9 +31,8 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             self.df.groupby("model_type")
             .agg({
                 "acc/test": ["mean", "std", "max", "min", "count"],
-                # Include link prediction metrics if they exist
-                **({'lp_uniform/auc': ["mean", "std", "max", "min"]} if 'lp_uniform/auc' in self.df.columns else {}),
-                **({'lp_hard/auc': ["mean", "std", "max", "min"]} if 'lp_hard/auc' in self.df.columns else {})
+                'lp_uniform/auc': ["mean", "std", "max", "min"],
+                'lp_hard/auc': ["mean", "std", "max", "min"]
             })
             .reset_index()
         )
@@ -52,27 +47,13 @@ class CrossModelAnalyzer(AbstractAnalyzer):
 
     def visualize(self):
         """Visualize comparison of different fusion models across all available metrics."""
-        if self.df.empty:
-            print("No data to visualize.")
-            return plt.figure()
 
-        # Extract model type if not already done
-        if "model_type" not in self.df.columns:
-            self.df["model_type"] = self.df["path"].str.extract(r"/logs/([^/]+)/")
-            
-        # Identify which metrics are available
-        metrics = ['acc/test']
-        if 'lp_uniform/auc' in self.df.columns:
-            metrics.append('lp_uniform/auc')
-        if 'lp_hard/auc' in self.df.columns:
-            metrics.append('lp_hard/auc')
-            
         # Create a subplot for each metric
-        num_metrics = len(metrics)
+        num_metrics = len(self.metrics)
         fig, axes = plt.subplots(1, num_metrics, figsize=(12 * num_metrics / 2, 8), squeeze=False)
         
         # Plot each metric
-        for i, metric in enumerate(metrics):
+        for i, metric in enumerate(self.metrics):
             ax = axes[0, i]
             sns.boxplot(x="model_type", y=metric, data=self.df, ax=ax)
             ax.set_title(f"Comparison of Fusion Models: {metric.replace('/', ' ').title()}")
@@ -104,11 +85,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         )
         
         # Identify which metrics are available
-        metrics = ['acc/test']
-        if 'lp_uniform/auc' in self.df.columns:
-            metrics.append('lp_uniform/auc')
-        if 'lp_hard/auc' in self.df.columns:
-            metrics.append('lp_hard/auc')
+        metrics = ['acc/test', "lp_uniform_auc", "lp_hard/auc"]
             
         # Create a subplot for each metric
         num_metrics = len(metrics)
@@ -131,24 +108,12 @@ class CrossModelAnalyzer(AbstractAnalyzer):
     
     def visualize_metrics_comparison(self):
         """Compare different metrics across models in a grouped bar chart."""
-        if self.df.empty:
-            print("No data to visualize correlations.")
-            return plt.figure()
             
-        # Extract model type if not already done
-        if "model_type" not in self.df.columns:
-            self.df["model_type"] = self.df["path"].str.extract(r"/logs/([^/]+)/")
+
             
         # Identify available metrics
-        metrics = ['acc/test']
-        if 'lp_uniform/auc' in self.df.columns:
-            metrics.append('lp_uniform/auc')
-        if 'lp_hard/auc' in self.df.columns:
-            metrics.append('lp_hard/auc')
-            
-        if len(metrics) <= 1:
-            print("Not enough metrics for comparison.")
-            return plt.figure()
+        metrics = ['acc/test', "lp_uniform_auc", "lp_hard/auc"]
+
             
         # Calculate average metrics by model type
         avg_metrics = self.df.groupby('model_type')[metrics].mean().reset_index()
@@ -563,16 +528,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             print("No data to visualize.")
             return plt.figure()
             
-        # Extract needed information from the fusion models DataFrame
-        if "model_type" not in self.df.columns:
-            self.df["model_type"] = self.df["path"].str.extract(r"/logs/([^/]+)/")
-            
-        if "textual_name" not in self.df.columns:
-            self.df["textual_name"] = self.df["path"].str.extract(r"/([^/]+)_[^/]+/\d+_\d+")
-            
-        if "relational_name" not in self.df.columns:
-            self.df["relational_name"] = self.df["path"].str.extract(r"/[^/]+_([^/]+)/\d+_\d+")
-            
+
         # Check required columns are available
         for col in ["model_type", "textual_name", "relational_name", metric]:
             if col not in self.df.columns or self.df[col].isnull().all():
@@ -596,7 +552,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             # Try to find matching baseline metrics
             try:
                 # Match with textual baseline
-                textual_key = f"{row['textual_name']}/{row['textual_dim']}"
+                textual_key = f"{row['textual_name']}/{row['dim']}"
                 if textual_key in baselines['textual'] and metric in baselines['textual'][textual_key]:
                     textual_baseline = baselines['textual'][textual_key][metric]
                     
@@ -845,23 +801,41 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         Returns:
             dict: Dictionary containing baseline metrics for textual and relational embeddings
         """
-        # Use the utility function, passing the analyzer's settings
-        baselines = load_baseline_metrics(
-            dpi=self.dpi, 
-            cmap=self.cmap, 
-            figsize=self.figsize,
-            verbose=True  # Print debug info about loaded baselines
-        )
+        # Load baseline metrics from utils
+        baseline_df = load_utils_baseline_metrics()
         
-        # Check a sample row
-        if not self.df.empty:
-            sample_row = self.df.iloc[0]
-            print("\nSample row:")
-            print(f"textual_name: {sample_row.get('textual_name', 'Not found')}")
-            print(f"textual_dim: {sample_row.get('textual_dim', 'Not found')}")
-            print(f"relational_name: {sample_row.get('relational_name', 'Not found')}")
-            print(f"relational_dim: {sample_row.get('relational_dim', 'Not found')}")
-
-        return baselines
-    
+        # Convert DataFrame to the expected dictionary format
+        baselines = {
+            "textual": {},
+            "relational": {}
+        }
+        
+        # Process textual models
+        textual_models = baseline_df[baseline_df["type"] == "textual"]
+        for _, row in textual_models.iterrows():
+            model_key = f"{row['name']}/{row['dim']}"
+            baselines["textual"][model_key] = {
+                metric: row[metric] for metric in self.metrics
+                if metric in row and not pd.isna(row[metric])
+            }
+        
+        # Process relational models
+        relational_models = baseline_df[baseline_df["type"] == "relational"]
+        for _, row in relational_models.iterrows():
+            # Use dimension as the key for relational models
+            dim_key = str(row['dim'])
+            if dim_key not in baselines["relational"]:
+                baselines["relational"][dim_key] = {}
+            
+            # Add metrics for this model
+            metrics_dict = {
+                metric: row[metric] for metric in self.metrics
+                if metric in row and not pd.isna(row[metric])
+            }
+            
+            # Update with better metrics if we have multiple models with same dim
+            for metric, value in metrics_dict.items():
+                if metric not in baselines["relational"][dim_key] or value > baselines["relational"][dim_key][metric]:
+                    baselines["relational"][dim_key][metric] = value
+        
         return baselines

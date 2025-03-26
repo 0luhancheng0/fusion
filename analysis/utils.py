@@ -89,122 +89,48 @@ def create_performance_comparison(models, metrics, values, ax=None, title=None):
     
     return fig, ax
 
-def load_baseline_metrics(
-    dpi: int = 300,
-    cmap: str = "viridis", 
-    figsize: Tuple[float, float] = (6.4, 4.8),
-    verbose: bool = False
-) -> Dict[str, Dict[str, Dict[str, float]]]:
-    """
-    Load baseline metrics for textual and relational embeddings.
-    
-    Args:
-        dpi: DPI for figures (passed to analyzers)
-        cmap: Colormap name for visualizations (passed to analyzers)
-        figsize: Figure size tuple (passed to analyzers) 
-        verbose: Whether to print debug information
-        
-    Returns:
-        dict: Dictionary containing baseline metrics for textual and relational embeddings
-             with the structure:
-             {
-                 'textual': {
-                     'model_name/dim': {'acc/test': value, 'lp_uniform/auc': value, ...},
-                     ...
-                 },
-                 'relational': {
-                     'dim': {'acc/test': value, 'lp_uniform/auc': value, ...},
-                     ...
-                 }
-             }
-    """
-    baselines = {
-        'textual': {},
-        'relational': {}
-    }
-    
-    # Load textual baselines from TextualEmbeddings
-    textual_path = "/home/lcheng/oz318/fusion/logs/TextualEmbeddings"
-    if Path(textual_path).exists():
-        textual_analyzer = TextualEmbeddingsAnalyzer(dpi=dpi, cmap=cmap, figsize=figsize)
-        for _, row in textual_analyzer.df.iterrows():
-            if 'model' in row and 'embedding_dim' in row:
-                # Create a unique key combining model name and dimension
-                key = f"{row['model']}/{row['embedding_dim']}"
-                baselines['textual'][key] = {}
-                
-                # Add all available metrics
-                for metric in ['acc/test', 'acc/valid', 'lp_uniform/auc', 'lp_hard/auc']:
-                    if metric in row and not pd.isna(row[metric]):
-                        baselines['textual'][key][metric] = row[metric]
-    
-    # Load Node2Vec relational baselines
-    node2vec_path = "/home/lcheng/oz318/fusion/logs/Node2VecLightning"
-    if Path(node2vec_path).exists():
-        node2vec_analyzer = Node2VecAnalyzer(dpi=dpi, cmap=cmap, figsize=figsize)
-        # Group by dimension and average the metrics
-        if not node2vec_analyzer.df.empty:
-            metrics = ['acc/test', 'acc/val', 'lp_uniform/auc', 'lp_hard/auc']
-            dim_metrics = node2vec_analyzer.df.groupby('dim')[metrics].mean().reset_index()
-            
-            for _, row in dim_metrics.iterrows():
-                dim = str(int(row['dim']))  # Convert to string for key
-                if dim not in baselines['relational']:
-                    baselines['relational'][dim] = {}
-                    
-                # Add all available metrics
-                for metric in metrics:
-                    if metric in row and not pd.isna(row[metric]):
-                        baselines['relational'][dim][metric] = row[metric]
-    
-    # Load ASGC relational baselines
-    asgc_path = "/home/lcheng/oz318/fusion/logs/ASGC"
-    if Path(asgc_path).exists():
-        asgc_analyzer = ASGCAnalyzer(dpi=dpi, cmap=cmap, figsize=figsize)
-        # Group by dimension and find best regularization and k values
-        if not asgc_analyzer.df.empty:
-            # Get the best performing config for each dimension
-            best_configs = []
-            for dim in asgc_analyzer.df['dim'].unique():
-                dim_data = asgc_analyzer.df[asgc_analyzer.df['dim'] == dim]
-                best_idx = dim_data['acc/test'].idxmax()
-                best_configs.append(dim_data.loc[best_idx])
-            
-            best_configs_df = pd.DataFrame(best_configs)
-            
-            for _, row in best_configs_df.iterrows():
-                dim = str(int(row['dim']))  # Convert to string for key
-                if dim not in baselines['relational']:
-                    baselines['relational'][dim] = {}
-                
-                # Add metrics, with "asgc_" prefix to distinguish from Node2Vec
-                for metric in ['acc/test', 'acc/valid', 'lp_uniform/auc', 'lp_hard/auc']:
-                    if metric in row and not pd.isna(row[metric]):
-                        baselines['relational'][f"asgc_{dim}"] = {}
-                        baselines['relational'][f"asgc_{dim}"][metric] = row[metric]
-    
-    if verbose:
-        print(f"Textual baselines: {list(baselines['textual'].keys())[:5]}") # First 5 keys
-        print(f"Relational baselines: {list(baselines['relational'].keys())[:5]}") # First 5 keys
+def load_baseline_metrics():
 
-    return baselines
+    textual_analyzer = TextualEmbeddingsAnalyzer()
+    node2vec_analyzer = Node2VecAnalyzer()
+    asgc_analyzer = ASGCAnalyzer()
 
-if __name__ == "__main__":
-    # When run directly, load and print the baselines with verbose output
-    baselines = load_baseline_metrics(verbose=True)
-    
-    # Print statistics about the loaded baselines
-    print("\nBaseline Statistics:")
-    print(f"Number of textual baseline models: {len(baselines['textual'])}")
-    print(f"Number of relational baseline models: {len(baselines['relational'])}")
-    
-    # Print example metric values for a few models
-    if baselines['textual']:
-        model_key = next(iter(baselines['textual']))
-        print(f"\nExample textual model ({model_key}):")
-        print(baselines['textual'][model_key])
+    baselines = []
+    for _, row in textual_analyzer.df.iterrows():
+        print(row)
+        results = {
+            "type": "textual",
+            "name": row["model_name"],
+            "dim": row["embedding_dim"],
+            "acc/test": row["acc/test"],
+            "acc/valid": row["acc/valid"],
+            "lp_uniform/auc": row["lp_uniform/auc"],
+            "lp_hard/auc": row["lp_hard/auc"],
+        }
+        baselines.append(results)
+
+    for _, row in node2vec_analyzer.df.iterrows():
+        results = {
+            "type": "relational",
+            "name": "node2vec",
+            "dim": row["embedding_dim"],
+            "acc/test": row["acc/test"],
+            "acc/valid": row["acc/valid"],
+            "lp_uniform/auc": row["lp_uniform/auc"],
+            "lp_hard/auc": row["lp_hard/auc"],
+        }
+        baselines.append(results)
         
-    if baselines['relational']:
-        model_key = next(iter(baselines['relational']))
-        print(f"\nExample relational model ({model_key}):")
-        print(baselines['relational'][model_key])
+    for _, row in asgc_analyzer.df.iterrows():
+        results = {
+            "type": "relational",
+            "name": "asgc",
+            "dim": row["dim"],
+            "acc/test": row["acc/test"],
+            "acc/valid": row["acc/valid"],
+            "lp_uniform/auc": row["lp_uniform/auc"],
+            "lp_hard/auc": row["lp_hard/auc"],
+        }
+        baselines.append(results)
+    return pd.DataFrame(baselines)
+

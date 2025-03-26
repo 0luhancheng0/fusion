@@ -2,10 +2,8 @@
 
 from .base import FusionAnalyzer
 class LowRankFusionAnalyzer(FusionAnalyzer):
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
-                 remove_outliers=False, outlier_params=None):
-        super().__init__("LowRankFusion", dpi, cmap, figsize, 
-                         remove_outliers=remove_outliers, outlier_params=outlier_params)
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
+        super().__init__("LowRankFusion", dpi, cmap, figsize)
     def post_process(self):
         self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim", "rank"]] = self.df.prefix.str.split(
             "[/_]"

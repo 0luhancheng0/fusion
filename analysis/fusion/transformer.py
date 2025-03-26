@@ -12,17 +12,12 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         dpi=300,
         cmap="viridis",
         figsize=(6.4, 4.8),
-        remove_outliers=False,
-        outlier_params=None,
-        # valid_output_modalities=None,
     ):
         super().__init__(
             "TransformerFusion",
             dpi,
             cmap,
             figsize,
-            remove_outliers=remove_outliers,
-            outlier_params=outlier_params,
         )
         # Default valid output modalities if not specified
         # self.valid_output_modalities = ["textual", "relational"] if valid_output_modalities is None else valid_output_modalities
@@ -88,7 +83,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
             )
 
         # Define metrics to visualize
-        metrics = ["acc/test", "lp_uniform/auc", "lp_hard/auc"]
+        # metrics = ["acc/test", "lp_uniform/auc", "lp_hard/auc"]
         
         # Get unique output modalities
         output_modalities = self.df["output_modality"].unique()
@@ -96,13 +91,13 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         
         # Create figure with subplot grid: metrics as rows, modalities as columns
         fig, axes = plt.subplots(
-            len(metrics), n_modalities, 
-            figsize=(6 * n_modalities, 5 * len(metrics)), 
+            len(self.metrics), n_modalities, 
+            figsize=(6 * n_modalities, 5 * len(self.metrics)), 
             squeeze=False
         )
         
         # Create a separate subplot for each combination of metric and modality
-        for i, metric in enumerate(metrics):
+        for i, metric in enumerate(self.metrics):
             # Create a row of plots that share the y-axis
             for j, modality in enumerate(output_modalities):
                 modality_data = self.df[self.df["output_modality"] == modality]
@@ -154,11 +149,6 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         if self.df.empty:
             print("No data to visualize.")
             return plt.figure()
-
-        # Extract parameters if not already done
-        if "output_modality" not in self.df.columns:
-            self.post_process()  # Ensure we have all columns processed
-
         # Use textual_name as a proxy for different tasks
         # Get unique tasks to plot
         tasks = self.df['textual_name'].unique()
@@ -197,36 +187,20 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         Returns:
             dict: Dictionary mapping metrics to DataFrames of ranked parameters by importance.
         """
-        if self.df.empty:
-            print("No data to analyze.")
-            return {}
             
-        # Ensure we have processed the data
-        if "output_modality" not in self.df.columns:
-            self.post_process()
         
         # Default metrics if none provided
-        if metrics is None:
-            metrics = ['acc/test']
+        metrics = ['acc/test', "lp_uniform/auc", 'lp_hard/auc']
         
-        parameters = ['latent_dim', 'num_layers', 'nhead', 'output_modality', 
-                      'textual_dim', 'relational_dim', 'textual_name', 'relational_name']
+        parameters = ['latent_dim', 'num_layers', 'nhead', 'output_modality', 'textual_dim', 'relational_dim', 'textual_name', 'relational_name']
         
         results = {}
         figures = {}
         
         for metric in metrics:
-            # Skip metrics that don't exist in the dataframe
-            if metric not in self.df.columns:
-                print(f"Metric '{metric}' not found in data.")
-                continue
                 
             # Get data with non-null values for this metric
             metric_data = self.df[~self.df[metric].isna()].copy()
-            
-            if metric_data.empty:
-                print(f"No data found for metric '{metric}'.")
-                continue
             
             # Filter out rows with infinite values in the metric column
             metric_data = metric_data[np.isfinite(metric_data[metric])]
@@ -235,76 +209,70 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
             numeric_cols = metric_data.select_dtypes(include=np.number).columns
             finite_mask = np.all(np.isfinite(metric_data[numeric_cols]), axis=1)
             metric_data = metric_data[finite_mask]
-            
-            if metric_data.empty:
-                print(f"No valid data left for metric '{metric}' after filtering NaN/inf values.")
-                continue
+
             
             # Calculate effect sizes and p-values for each parameter
             param_effects = []
             
             for param in parameters:
-                try:
-                    if param not in metric_data.columns:
-                        continue
-                        
-                    # Convert parameter to categorical if it isn't already
-                    if metric_data[param].dtype == 'object' or isinstance(metric_data[param].dtype, pd.CategoricalDtype):
-                        groups = metric_data.groupby(param)[metric]
-                    else:
-                        # For numerical parameters, bin them into quartiles
-                        metric_data[f'{param}_binned'] = pd.qcut(metric_data[param], 4, duplicates='drop')
-                        groups = metric_data.groupby(f'{param}_binned')[metric]
+
+                if param not in metric_data.columns:
+                    continue
                     
-                    # Calculate metrics for parameter importance
-                    group_values = [group[1].values for group in groups]
-                    
-                    # Skip if we have fewer than 2 groups or any group is empty
-                    if len(group_values) < 2 or any(len(g) == 0 for g in group_values):
-                        continue
-                    
-                    # Effect size: max group mean - min group mean (normalized by overall std)
-                    group_means = [g.mean() for g in group_values if len(g) > 0]
-                    overall_std = metric_data[metric].std()
-                    effect_size = (max(group_means) - min(group_means)) / overall_std if overall_std > 0 else 0
-                    
-                    # Range of means
-                    mean_range = max(group_means) - min(group_means) if group_means else 0
-                    
-                    # Variance explained: ratio of between-group variance to total variance
-                    grand_mean = metric_data[metric].mean()
-                    total_variance = sum((val - grand_mean) ** 2 for g in group_values for val in g)
-                    between_variance = sum(len(g) * ((g.mean() - grand_mean) ** 2) for g in group_values if len(g) > 0)
-                    variance_explained = between_variance / total_variance if total_variance > 0 else 0
-                    
-                    param_effects.append({
-                        'parameter': param,
-                        'effect_size': effect_size,
-                        'mean_range': mean_range,
-                        'variance_explained': variance_explained,
-                        'num_groups': len(group_values)
-                    })
-                except Exception as e:
-                    print(f"Error analyzing parameter {param} for {metric}: {e}")
-            
+                # Convert parameter to categorical if it isn't already
+                if metric_data[param].dtype == 'object' or isinstance(metric_data[param].dtype, pd.CategoricalDtype):
+                    groups = metric_data.groupby(param)[metric]
+                else:
+                    # For numerical parameters, bin them into quartiles
+                    metric_data[f'{param}_binned'] = pd.qcut(metric_data[param], 4, duplicates='drop')
+                    groups = metric_data.groupby(f'{param}_binned')[metric]
+                
+                # Calculate metrics for parameter importance
+                group_values = [group[1].values for group in groups]
+                
+                # Skip if we have fewer than 2 groups or any group is empty
+                if len(group_values) < 2 or any(len(g) == 0 for g in group_values):
+                    continue
+                
+                # Effect size: max group mean - min group mean (normalized by overall std)
+                group_means = [g.mean() for g in group_values if len(g) > 0]
+                overall_std = metric_data[metric].std()
+                effect_size = (max(group_means) - min(group_means)) / overall_std if overall_std > 0 else 0
+                
+                # Range of means
+                mean_range = max(group_means) - min(group_means) if group_means else 0
+                
+                # Variance explained: ratio of between-group variance to total variance
+                grand_mean = metric_data[metric].mean()
+                total_variance = sum((val - grand_mean) ** 2 for g in group_values for val in g)
+                between_variance = sum(len(g) * ((g.mean() - grand_mean) ** 2) for g in group_values if len(g) > 0)
+                variance_explained = between_variance / total_variance if total_variance > 0 else 0
+                
+                param_effects.append({
+                    'parameter': param,
+                    'effect_size': effect_size,
+                    'mean_range': mean_range,
+                    'variance_explained': variance_explained,
+                    'num_groups': len(group_values)
+                })
+
             # Create DataFrame and sort by importance
-            if param_effects:
-                effects_df = pd.DataFrame(param_effects)
-                effects_df = effects_df.sort_values('variance_explained', ascending=False)
-                results[metric] = effects_df
-                
-                # Create visualization
-                fig, ax = plt.subplots(figsize=(10, 6))
-                sns.barplot(x='parameter', y='variance_explained', data=effects_df, ax=ax)
-                ax.set_title(f'Parameter Importance for {metric}')
-                ax.set_xlabel('Parameter')
-                ax.set_ylabel('Variance Explained')
-                plt.xticks(rotation=45)
-                plt.tight_layout()
-                
-                figures[metric] = self.save_and_return(fig, f"parameter_importance_{metric.replace('/', '_')}")
-            else:
-                print(f"No valid parameters found for {metric}.")
+
+            effects_df = pd.DataFrame(param_effects)
+            effects_df = effects_df.sort_values('variance_explained', ascending=False)
+            results[metric] = effects_df
+            
+            # Create visualization
+            fig, ax = plt.subplots(figsize=(10, 6))
+            sns.barplot(x='parameter', y='variance_explained', data=effects_df, ax=ax)
+            ax.set_title(f'Parameter Importance for {metric}')
+            ax.set_xlabel('Parameter')
+            ax.set_ylabel('Variance Explained')
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            
+            figures[metric] = self.save_and_return(fig, f"parameter_importance_{metric.replace('/', '_')}")
+
         
         return {
             'importance_data': results,

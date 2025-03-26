@@ -6,31 +6,19 @@ import numpy as np
 class Node2VecAnalyzer(AbstractAnalyzer):
     """Analyzer for Node2Vec embeddings results."""
     
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
-                 remove_outliers=False, outlier_params=None):
-        super().__init__("/home/lcheng/oz318/fusion/logs/Node2VecLightning", dpi, cmap, figsize, 
-                        remove_outliers=remove_outliers, outlier_params=outlier_params)
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
+        super().__init__("/home/lcheng/oz318/fusion/logs/Node2VecLightning", dpi, cmap, figsize)
     
     def post_process(self):
-        """Extract dimension and seed from the directory structure."""
         if not self.df.empty:
-            # Directory structure is /path/to/logs/Node2VecLightning/128/0/
-            # Extract dimension from the second-to-last directory
-            # Extract seed from the last directory
             self.df['dim'] = self.df['path'].apply(lambda p: int(p.split('/')[-2]))
             self.df['seed'] = self.df['path'].apply(lambda p: int(p.split('/')[-1]))
     
     def analyze(self):
-        """Analyze Node2Vec results, grouping by dimension."""
-        if self.df.empty:
-            print("No data to analyze.")
-            return None
-        
-        # Group by dimension
         result = (
             self.df.groupby(["dim"])
             .agg({
-                "acc/val": ["mean", "std", "min", "max"],
+                "acc/valid": ["mean", "std", "min", "max"],
                 "acc/test": ["mean", "std", "min", "max"],
                 "lp_uniform/auc": ["mean", "std", "min", "max"],
                 "lp_hard/auc": ["mean", "std", "min", "max"],  # Added hard link prediction metric
@@ -38,16 +26,13 @@ class Node2VecAnalyzer(AbstractAnalyzer):
             .reset_index()
         )
         
-        # Format column names for better readability
         result.columns = ["_".join(col).strip() for col in result.columns.values]
         return result
     
-    def visualize(self):
-        """Visualize Node2Vec results - performance by dimension."""
-        if self.df.empty:
-            print("No data to visualize.")
-            return plt.figure()
-        
+    
+    
+    def performance_by_dimension(self):
+
         # Create three subplots - one for node classification, two for link prediction
         fig, axes = plt.subplots(1, 3, figsize=(self.figsize[0]*3, self.figsize[1]), squeeze=False)
         
@@ -58,58 +43,41 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         axes[0, 0].set_ylabel("Test Accuracy")
         
         # Plot 2: Standard link prediction by dimension
-        if "lp_uniform/auc" in self.df.columns:
-            sns.boxplot(x="dim", y="lp_uniform/auc", data=self.df, ax=axes[0, 1])
-            axes[0, 1].set_title("Link Prediction AUC by Dimension")
-            axes[0, 1].set_xlabel("Embedding Dimension")
-            axes[0, 1].set_ylabel("AUC")
-        else:
-            axes[0, 1].text(0.5, 0.5, "Link prediction data not available", 
-                          ha='center', va='center', transform=axes[0, 1].transAxes)
-            axes[0, 1].set_xticks([])
-            axes[0, 1].set_yticks([])
+        sns.boxplot(x="dim", y="lp_uniform/auc", data=self.df, ax=axes[0, 1])
+        axes[0, 1].set_title("Link Prediction AUC by Dimension")
+        axes[0, 1].set_xlabel("Embedding Dimension")
+        axes[0, 1].set_ylabel("AUC")
+
             
         # Plot 3: Hard link prediction by dimension
-        if "lp_hard/auc" in self.df.columns:
-            sns.boxplot(x="dim", y="lp_hard/auc", data=self.df, ax=axes[0, 2])
-            axes[0, 2].set_title("Hard Link Prediction AUC by Dimension")
-            axes[0, 2].set_xlabel("Embedding Dimension")
-            axes[0, 2].set_ylabel("AUC")
-        else:
-            axes[0, 2].text(0.5, 0.5, "Hard link prediction data not available", 
-                          ha='center', va='center', transform=axes[0, 2].transAxes)
-            axes[0, 2].set_xticks([])
-            axes[0, 2].set_yticks([])
+        sns.boxplot(x="dim", y="lp_hard/auc", data=self.df, ax=axes[0, 2])
+        axes[0, 2].set_title("Hard Link Prediction AUC by Dimension")
+        axes[0, 2].set_xlabel("Embedding Dimension")
+        axes[0, 2].set_ylabel("AUC")
+
         
         plt.tight_layout()
         return self.save_and_return(fig, "performance_by_dimension")
     
     def visualize_task_comparison(self):
         """Compare node classification and link prediction performance."""
-        if self.df.empty:
-            print("No data for task comparison.")
-            return plt.figure()
+
         
         fig, ax = plt.subplots(figsize=self.figsize)
         
-        # Calculate average metrics by dimension
-        agg_metrics = ['acc/test']
-        if 'lp_uniform/auc' in self.df.columns:
-            agg_metrics.append('lp_uniform/auc')
-        if 'lp_hard/auc' in self.df.columns:
-            agg_metrics.append('lp_hard/auc')
+
             
-        dim_metrics = self.df.groupby('dim')[agg_metrics].mean().reset_index()
+        dim_metrics = self.df.groupby('dim')[self.metrics].mean().reset_index()
         
         # Plot comparison
         x = np.arange(len(dim_metrics))
-        width = 0.8 / len(agg_metrics)  # Adjust bar width based on number of metrics
+        width = 0.8 / len(self.metrics)  # Adjust bar width based on number of metrics
         
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c']  # Blue, orange, green
         labels = ['Node Classification', 'Link Prediction', 'Hard Link Prediction']
         
-        for i, metric in enumerate(agg_metrics):
-            pos = x + width * (i - (len(agg_metrics) - 1) / 2)
+        for i, metric in enumerate(self.metrics):
+            pos = x + width * (i - (len(self.metrics) - 1) / 2)
             bars = ax.bar(pos, dim_metrics[metric], width, label=labels[i], color=colors[i])
             
             # Add value labels on bars
@@ -130,10 +98,7 @@ class Node2VecAnalyzer(AbstractAnalyzer):
     
     def visualize_lp_comparison(self):
         """Compare standard and hard link prediction performance."""
-        if self.df.empty or 'lp_uniform/auc' not in self.df.columns or 'lp_hard/auc' not in self.df.columns:
-            print("No data for link prediction comparison.")
-            return plt.figure()
-        
+
         fig, ax = plt.subplots(figsize=self.figsize)
         
         # Calculate average metrics by dimension
@@ -159,25 +124,15 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         plt.tight_layout()
         return self.save_and_return(fig, "lp_comparison")
         
-    def find_best_dimension(self, metric="acc/test"):
-        """Find the best performing dimension for specified metric."""
-        # ...existing code...
+
     
     def run(self):
         """Run all available visualizations for Node2Vec analysis."""
         results = super().run()
-            
-        try:
-            results["task_comparison"] = self.visualize_task_comparison()
-            print("Task performance comparison created.")
-        except Exception as e:
-            print(f"Error creating task performance comparison: {e}")
-            
-        try:
-            results["lp_comparison"] = self.visualize_lp_comparison()
-            print("Link prediction comparison created.")
-        except Exception as e:
-            print(f"Error creating link prediction comparison: {e}")
+        results["performance_by_dimension"] = self.visualize()
+        results["task_comparison"] = self.visualize_task_comparison()
+        results["lp_comparison"] = self.visualize_lp_comparison()
+
         
         return results
 

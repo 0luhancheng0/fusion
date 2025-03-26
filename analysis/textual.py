@@ -10,10 +10,8 @@ from .base import AbstractAnalyzer
 class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
     """Analyzer for textual embeddings evaluation results."""
     
-    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8), 
-                 remove_outliers=False, outlier_params=None):
-        super().__init__("/home/lcheng/oz318/fusion/logs/TextualEmbeddings", dpi, cmap, figsize, 
-                        remove_outliers=remove_outliers, outlier_params=outlier_params)
+    def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
+        super().__init__("/home/lcheng/oz318/fusion/logs/TextualEmbeddings", dpi, cmap, figsize)
     
     def post_process(self):
         """Process the DataFrame to extract model names and dimensions."""
@@ -31,44 +29,11 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
                     self.df['embedding_dim'] = self.df['embedding_path'].apply(
                         lambda p: int(Path(p).stem) if Path(p).stem.isdigit() else None
                     )
+
     
-    def analyze(self):
-        """Analyze textual embeddings results."""
-        if self.df.empty:
-            print("No data to analyze.")
-            return None
-        
-        # Group by model and embedding dimension
-        try:
-            # Add lp_hard/auc to the aggregation if it exists
-            agg_dict = {
-                "acc/valid": ["mean", "std"],
-                "acc/test": ["mean", "std"],
-                "lp_uniform/auc": ["mean", "std"]
-            }
-            
-            # Include hard link prediction if available
-            if "lp_hard/auc" in self.df.columns:
-                agg_dict["lp_hard/auc"] = ["mean", "std"]
-                
-            result = (
-                self.df.groupby(["model", "embedding_dim"])
-                .agg(agg_dict)
-                .reset_index()
-            )
-            
-            # Format column names
-            result.columns = ["_".join(col).strip() for col in result.columns.values]
-            return result
-        except KeyError as e:
-            print(f"Could not analyze data: {e}")
-            return self.df
-    
-    def visualize(self):
+    def scatter_plot(self):
         """Create a scatter plot with lines comparing test accuracy and link prediction metrics."""
-        if self.df.empty:
-            print("No data to visualize.")
-            return plt.figure()
+
         
         # Prepare data for plotting
         plot_data = self.df.copy()
@@ -201,23 +166,19 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
         plt.tight_layout()
         return self.save_and_return(fig, "combined_performance")
     
-    def visualize_metrics(self):
+    def bar_plot(self):
         """Create a grouped bar chart comparing different metrics across models."""
-        if self.df.empty:
-            print("No data to visualize.")
-            return plt.figure()
-        
+
         # Determine which metrics to include
-        metrics = ['acc/valid', 'acc/test', 'lp_uniform/auc']
-        if 'lp_hard/auc' in self.df.columns:
-            metrics.append('lp_hard/auc')
+        # metrics = ['acc/valid', 'acc/test', 'lp_uniform/auc', 'lp_hard/auc']
+
         
         # Melt the DataFrame to create a long format for grouped bars
         plot_data = self.df.copy()
         metrics_data = pd.melt(
             plot_data,
             id_vars=['model', 'embedding_dim'],
-            value_vars=metrics,
+            value_vars=self.metrics,
             var_name='metric', 
             value_name='score'
         )
@@ -237,93 +198,13 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
         plt.tight_layout()
         return self.save_and_return(fig, "metrics_comparison")
     
-    def visualize_dimension_impact(self):
-        """Create a scatter plot showing relationship between dimension and performance."""
-        if self.df.empty:
-            print("No data to visualize.")
-            return plt.figure()
-        
-        if 'embedding_dim' not in self.df.columns:
-            print("No dimension information available.")
-            return plt.figure()
-        
-        # Create figure
-        fig, ax = plt.subplots(figsize=(10, 6))
-        
-        # Create scatter plot with model-based coloring
-        models = self.df['model'].unique()
-        colors = sns.color_palette(self.cmap.name, len(models))
-        
-        for i, model in enumerate(models):
-            model_data = self.df[self.df['model'] == model]
-            ax.scatter(
-                model_data['embedding_dim'], 
-                model_data['acc/test'],
-                c=[colors[i]],
-                s=100, 
-                label=model,
-                alpha=0.7
-            )
-        
-        # Add best-fit line if enough data points
-        if len(self.df) > 2:
-            try:
-                # Use only models that have multiple dimensions
-                dimension_counts = self.df.groupby('model')['embedding_dim'].nunique()
-                multi_dim_models = dimension_counts[dimension_counts > 1].index.tolist()
-                
-                if multi_dim_models:
-                    for model in multi_dim_models:
-                        model_data = self.df[self.df['model'] == model]
-                        if len(model_data) > 1:
-                            # Add trend line for this model
-                            x = model_data['embedding_dim']
-                            y = model_data['acc/test']
-                            z = np.polyfit(x, y, 1)
-                            p = np.poly1d(z)
-                            x_sorted = np.sort(x)
-                            ax.plot(x_sorted, p(x_sorted), '--', color=colors[list(models).index(model)], alpha=0.7)
-            except Exception as e:
-                print(f"Could not create trend lines: {e}")
-        
-        ax.set_title('Impact of Embedding Dimension on Test Accuracy')
-        ax.set_xlabel('Embedding Dimension')
-        ax.set_ylabel('Test Accuracy')
-        ax.grid(True, alpha=0.3)
-        ax.legend(title='Model')
-        
-        plt.tight_layout()
-        return self.save_and_return(fig, "dimension_impact")
     
-    def find_best_model(self, metric='acc/test'):
-        """Find the best performing model according to the specified metric."""
-        if self.df.empty:
-            print("No data to analyze.")
-            return None
-        
-        best_idx = self.df[metric].idxmax()
-        best_model = self.df.iloc[best_idx]
-        
-        print(f"Best model: {best_model['model']} with {metric}={best_model[metric]:.4f}")
-        if 'embedding_dim' in best_model:
-            print(f"Dimension: {best_model['embedding_dim']}")
-            
-        return best_model
+
 
     def run(self):
         """Run all available visualizations for textual embeddings analysis."""
-        results = super().run()
-        
-        try:
-            results["metrics"] = self.visualize_metrics()
-            print("Metrics comparison visualization created.")
-        except Exception as e:
-            print(f"Error creating metrics comparison: {e}")
-            
-        try:
-            results["dimension_impact"] = self.visualize_dimension_impact()
-            print("Dimension impact visualization created.")
-        except Exception as e:
-            print(f"Error creating dimension impact visualization: {e}")
+        results = {}
+        results['scatterplot'] = self.scatter_plot()
+        results["barplot"] = self.bar_plot()
             
         return results

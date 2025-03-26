@@ -69,7 +69,7 @@ class Node2VecLightning(L.LightningModule):
 
     def validation_step(self, batch, _):
         self.log(
-            "acc/val",
+            "acc/valid",
             self.evaluator.evaluate_arxiv_embeddings(self.get_node_embeddings(), "val"),
         )
 
