@@ -11,11 +11,11 @@ class FusionAnalyzer(AbstractAnalyzer):
         self.experiment_type = experiment_type
         base_path = f"/home/lcheng/oz318/fusion/logs/{experiment_type}"
         super().__init__(base_path, dpi, cmap, figsize)
+
     def post_process(self):
         self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim"]] = self.df.prefix.str.split(
             "[/_]"
         ).tolist()
-        self.df = self.df.drop(columns=["prefix"])
         
 
 
@@ -150,12 +150,6 @@ class FusionAnalyzer(AbstractAnalyzer):
     def run(self):
         """Run all available visualizations for fusion analysis."""
         results = {}
-
-        # results = self.visualize(
-        #     x_axis="textual_name",
-        #     y_axis="relational_name",
-        #     filter_params={"latent_dim": 128},
-        # )
 
         
         results['main'] = self.visualize()

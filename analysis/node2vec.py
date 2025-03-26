@@ -123,16 +123,12 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         
         plt.tight_layout()
         return self.save_and_return(fig, "lp_comparison")
-        
 
-    
     def run(self):
         """Run all available visualizations for Node2Vec analysis."""
-        results = super().run()
-        results["performance_by_dimension"] = self.visualize()
+        results = {}
+        results["performance_by_dimension"] = self.performance_by_dimension()
         results["task_comparison"] = self.visualize_task_comparison()
-        results["lp_comparison"] = self.visualize_lp_comparison()
-
-        
+        results["lp_comparison"] = self.visualize_lp_comparison()        
         return results
 

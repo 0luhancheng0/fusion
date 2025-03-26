@@ -286,7 +286,6 @@ class ASGCAnalyzer(AbstractAnalyzer):
     def run(self):
         """Run all available visualizations for ASGC analysis."""
         results = {}
-        results["main"] = self.visualize()
         results["parameter_impact"] = self.visualize_parameter_impact()
         results.update(self.visualize_coefficient_heatmaps())
         results["hyperparameter_sensitivity"] = self.visualize_hyperparameter_sensitivity()

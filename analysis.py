@@ -12,7 +12,6 @@ from analysis.asgc import ASGCAnalyzer
 from analysis.crossmodel import CrossModelAnalyzer
 from analysis.textual import TextualEmbeddingsAnalyzer
 from analysis.node2vec import Node2VecAnalyzer
-from analysis.fusion.addition import AdditionFusionAnalyzer
 from analysis.fusion.early import EarlyFusionAnalyzer
 from analysis.fusion.gated import GatedFusionAnalyzer
 from analysis.fusion.lowrank import LowRankFusionAnalyzer
@@ -139,7 +138,6 @@ def fusion(
     """Run a specific fusion analyzer"""
     # Map of fusion type names to analyzers
     fusion_analyzers = {
-        "addition": AdditionFusionAnalyzer,
         "early": EarlyFusionAnalyzer,
         "gated": GatedFusionAnalyzer,
         "lowrank": LowRankFusionAnalyzer,
@@ -171,7 +169,6 @@ def all(
         "crossmodel": run_analyzer(CrossModelAnalyzer, dpi=dpi, cmap=cmap, figsize=figsize),
         "node2vec": run_analyzer(Node2VecAnalyzer, dpi=dpi, cmap=cmap, figsize=figsize),
         "textual": run_analyzer(TextualEmbeddingsAnalyzer, dpi=dpi, cmap=cmap, figsize=figsize),
-        "addition": run_analyzer(AdditionFusionAnalyzer, dpi=dpi, cmap=cmap, figsize=figsize),
         "early": run_analyzer(EarlyFusionAnalyzer, dpi=dpi, cmap=cmap, figsize=figsize),
         "gated": run_analyzer(GatedFusionAnalyzer, dpi=dpi, cmap=cmap, figsize=figsize),
         "lowrank": run_analyzer(LowRankFusionAnalyzer, dpi=dpi, cmap=cmap, figsize=figsize),
