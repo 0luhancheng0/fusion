@@ -146,9 +146,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
 
     def visualize_architecture_impact(self):
         """Visualize the impact of different output modalities across tasks."""
-        if self.df.empty:
-            print("No data to visualize.")
-            return plt.figure()
+
         # Use textual_name as a proxy for different tasks
         # Get unique tasks to plot
         tasks = self.df['textual_name'].unique()
@@ -281,47 +279,11 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         
     def run(self):
         """Run all available visualizations for transformer fusion analysis."""
-        # Ensure we have processed the data
-        if "output_modality" not in self.df.columns:
-            self.post_process()
-        
-        # Store original dataframe
-        original_df = self.df.copy()
-        
-        # Filter to include only valid output modalities
 
-        # self.df = self.df[self.df["output_modality"].isin(self.valid_output_modalities)]
-        # print(f"Filtered to include only {self.valid_output_modalities} output modalities. {len(self.df)} records remain.")
-        
-        if self.df.empty:
-            print("No data to analyze after filtering for valid output modalities.")
-            # Restore original dataframe
-            self.df = original_df
-            return {}
-        
-        # Run the analysis with filtered data
         results = super().run()
 
-        try:
-            results["output_modality"] = self.visualize_output_modality()
-            print("Output modality visualization created.")
-        except Exception as e:
-            print(f"Error creating output modality visualization: {e}")
+        results["output_modality"] = self.visualize_output_modality()
+        results["architecture_impact"] = self.visualize_architecture_impact()
+        results["parameter_importance"] = self.analyze_parameter_importance(self.metrics)
 
-        try:
-            results["architecture_impact"] = self.visualize_architecture_impact()
-            print("Architecture impact visualization created.")
-        except Exception as e:
-            print(f"Error creating architecture impact visualization: {e}")
-
-        try:
-            param_importance = self.analyze_parameter_importance(['acc/test', 'lp_uniform/auc', 'lp_hard/auc'])
-            results["parameter_importance"] = param_importance
-            print("Parameter importance analysis created.")
-        except Exception as e:
-            print(f"Error creating parameter importance analysis: {e}")
-        
-        # Restore original dataframe
-        self.df = original_df
-        
         return results

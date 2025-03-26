@@ -19,31 +19,10 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         # Use a common parent directory that contains all model types
         super().__init__("/home/lcheng/oz318/fusion/logs", dpi, cmap, figsize)
 
-    def analyze(self):
+    def post_process(self):
         """Analyze and compare results across different fusion models."""
-
-
-        # Extract model type from path
         self.df["model_type"] = self.df["path"].str.extract(r"/logs/([^/]+)/")
-
-        # Basic comparison across models
-        model_comparison = (
-            self.df.groupby("model_type")
-            .agg({
-                "acc/test": ["mean", "std", "max", "min", "count"],
-                'lp_uniform/auc': ["mean", "std", "max", "min"],
-                'lp_hard/auc': ["mean", "std", "max", "min"]
-            })
-            .reset_index()
-        )
-
-        # Format column names
-        model_comparison.columns = [
-            "_".join(col).strip() if col[1] else col[0]
-            for col in model_comparison.columns.values
-        ]
-
-        return model_comparison
+        return self.df
 
     def visualize(self):
         """Visualize comparison of different fusion models across all available metrics."""
@@ -66,9 +45,6 @@ class CrossModelAnalyzer(AbstractAnalyzer):
 
     def visualize_by_embedding_type(self):
         """Compare model performance across different embedding combinations."""
-        if self.df.empty:
-            print("No data to visualize.")
-            return plt.figure()
 
         # Extract model type and embedding info
         if "model_type" not in self.df.columns:
@@ -84,15 +60,13 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             self.df["textual_name"] + "_" + self.df["relational_name"]
         )
         
-        # Identify which metrics are available
-        metrics = ['acc/test', "lp_uniform_auc", "lp_hard/auc"]
             
         # Create a subplot for each metric
-        num_metrics = len(metrics)
+        num_metrics = len(self.metrics)
         fig, axes = plt.subplots(num_metrics, 1, figsize=(14, 8 * num_metrics), squeeze=False)
         
         # Plot each metric
-        for i, metric in enumerate(metrics):
+        for i, metric in enumerate(self.metrics):
             ax = axes[i, 0]
             sns.boxplot(
                 x="embedding_combo", y=metric, hue="model_type", data=self.df, ax=ax
@@ -111,12 +85,10 @@ class CrossModelAnalyzer(AbstractAnalyzer):
             
 
             
-        # Identify available metrics
-        metrics = ['acc/test', "lp_uniform_auc", "lp_hard/auc"]
 
             
         # Calculate average metrics by model type
-        avg_metrics = self.df.groupby('model_type')[metrics].mean().reset_index()
+        avg_metrics = self.df.groupby('model_type')[self.metrics].mean().reset_index()
         
         # Create figure
         fig, ax = plt.subplots(figsize=(14, 8))
@@ -124,14 +96,14 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         # Set up positions for grouped bars
         models = avg_metrics['model_type'].unique()
         x = np.arange(len(models))
-        width = 0.8 / len(metrics)  # Adjust bar width based on number of metrics
+        width = 0.8 / len(self.metrics)  # Adjust bar width based on number of metrics
         
         # Colors for different metrics
         colors = ['#1f77b4', '#ff7f0e', '#2ca02c']  # Blue, orange, green
         
         # Create grouped bars
-        for i, metric in enumerate(metrics):
-            pos = x + width * (i - (len(metrics) - 1) / 2)
+        for i, metric in enumerate(self.metrics):
+            pos = x + width * (i - (len(self.metrics) - 1) / 2)
             bars = ax.bar(pos, avg_metrics[metric], width, label=metric.replace('/', ' ').title(), color=colors[i % len(colors)])
             
             # Add value labels on bars
@@ -182,21 +154,12 @@ class CrossModelAnalyzer(AbstractAnalyzer):
                 
         # Filter out non-fusion models or rows with missing values
         fusion_models = self.df.dropna(subset=required_cols)
-        if fusion_models.empty:
-            print("No fusion models found with complete data.")
-            return {}
-        
-        # Define metrics to visualize
-        metrics = ["acc/test"]
-        if "lp_uniform/auc" in fusion_models.columns:
-            metrics.append("lp_uniform/auc")
-        if "lp_hard/auc" in fusion_models.columns:
-            metrics.append("lp_hard/auc")
+
             
         # Create a figure for each metric
         results = {}
         
-        for metric in metrics:
+        for metric in self.metrics:
             # Skip if metric not available
             if metric not in fusion_models.columns:
                 continue
@@ -295,78 +258,42 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         
     def run(self):
         """Run all available visualizations for cross-model analysis."""
-        results = super().run()
+
         
-        # Get available metrics
-        metrics = ['acc/test']
-        if 'lp_uniform/auc' in self.df.columns:
-            metrics.append('lp_uniform/auc')
-        if 'lp_hard/auc' in self.df.columns:
-            metrics.append('lp_hard/auc')
-        
-        try:
-            results["embedding_type"] = self.visualize_by_embedding_type()
-            print("Embedding type comparison visualization created.")
-        except Exception as e:
-            print(f"Error creating embedding type comparison: {e}")
+        results = {"main": self.visualize()}
+        results["embedding_type"] = self.visualize_by_embedding_type()
             
-        try:
-            results["metrics_comparison"] = self.visualize_metrics_comparison()
-            print("Metrics comparison visualization created.")
-        except Exception as e:
-            print(f"Error creating metrics comparison: {e}")
+        results["metrics_comparison"] = self.visualize_metrics_comparison()
 
         # Add the new fusion heatmap visualizations
-        try:
-            fusion_heatmaps = self.visualize_fusion_heatmaps()
-            for metric, fig in fusion_heatmaps.items():
-                results[f"fusion_heatmap_{metric}"] = fig
-            if fusion_heatmaps:
-                print("Fusion heatmap visualizations created.")
-        except Exception as e:
-            print(f"Error creating fusion heatmap visualizations: {e}")
-            
-        # Add performance tradeoffs visualization
-        try:
-            results["performance_tradeoffs"] = self.visualize_performance_tradeoffs()
-            print("Performance tradeoffs visualization created.")
-        except Exception as e:
-            print(f"Error creating performance tradeoffs visualization: {e}")
-            
-        # Add metric correlations visualization
-        try:
-            results["metric_correlations"] = self.visualize_metric_correlations()
-            print("Metric correlations visualization created.")
-        except Exception as e:
-            print(f"Error creating metric correlations visualization: {e}")
-            
-        # Create performance distributions for all available metrics
-        for metric in metrics:
-            try:
-                metric_key = f"performance_distributions_{metric.replace('/', '_')}"
-                results[metric_key] = self.visualize_performance_distributions(metric)
-                print(f"Performance distributions visualization created for {metric}.")
-            except Exception as e:
-                print(f"Error creating performance distributions visualization for {metric}: {e}")
-            
-        # Create embedding quality impact for all available metrics
-        for metric in metrics:
-            try:
-                metric_key = f"embedding_quality_impact_{metric.replace('/', '_')}"
-                results[metric_key] = self.visualize_embedding_quality_impact(metric)
-                print(f"Embedding quality impact visualization created for {metric}.")
-            except Exception as e:
-                print(f"Error creating embedding quality impact visualization for {metric}: {e}")
-            
-        # Create performance gain for all available metrics
-        for metric in metrics:
-            try:
-                metric_key = f"performance_gain_{metric.replace('/', '_')}"
-                results[metric_key] = self.visualize_performance_gain(metric)
-                print(f"Performance gain visualization created for {metric}.")
-            except Exception as e:
-                print(f"Error creating performance gain visualization for {metric}: {e}")
+        fusion_heatmaps = self.visualize_fusion_heatmaps()
+        for metric, fig in fusion_heatmaps.items():
+            results[f"fusion_heatmap_{metric}"] = fig
+        if fusion_heatmaps:
+            print("Fusion heatmap visualizations created.")
 
+        # Add performance tradeoffs visualization
+
+        results["performance_tradeoffs"] = self.visualize_performance_tradeoffs()
+
+        # Add metric correlations visualization
+        results["metric_correlations"] = self.visualize_metric_correlations()
+
+        # Create performance distributions for all available metrics
+        for metric in self.metrics:
+            metric_key = f"performance_distributions_{metric.replace('/', '_')}"
+            results[metric_key] = self.visualize_performance_distributions(metric)
+
+        # Create embedding quality impact for all available metrics
+        for metric in self.metrics:
+            metric_key = f"embedding_quality_impact_{metric.replace('/', '_')}"
+            results[metric_key] = self.visualize_embedding_quality_impact(metric)
+
+        # Create performance gain for all available metrics
+        for metric in self.metrics:
+            metric_key = f"performance_gain_{metric.replace('/', '_')}"
+            results[metric_key] = self.visualize_performance_gain(metric)
+            
         return results
 
     def visualize_performance_tradeoffs(self):
@@ -374,9 +301,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         Create a scatter plot showing trade-offs between node classification and link prediction performance.
         Each point represents a model/experiment, positioned by its accuracy vs LP performance.
         """
-        if self.df.empty or 'acc/test' not in self.df.columns or 'lp_uniform/auc' not in self.df.columns:
-            print("Missing required metrics for trade-off visualization.")
-            return plt.figure()
+
             
         fig, ax = plt.subplots(figsize=(10, 8))
         
@@ -467,9 +392,6 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         Args:
             metric: The performance metric to visualize
         """
-        if self.df.empty or metric not in self.df.columns:
-            print(f"Missing required metric '{metric}'")
-            return plt.figure()
         
         # Add model type column if not present
         if 'model_type' not in self.df.columns:
@@ -524,10 +446,6 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         Args:
             metric: Performance metric to visualize (e.g., 'acc/test', 'lp_uniform/auc')
         """
-        if self.df.empty:
-            print("No data to visualize.")
-            return plt.figure()
-            
 
         # Check required columns are available
         for col in ["model_type", "textual_name", "relational_name", metric]:

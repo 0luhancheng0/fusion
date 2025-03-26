@@ -107,21 +107,8 @@ class NodeEmbeddingEvaluator:
         # For link prediction
         self.graph = graph
 
-        # Set paths for negative samples
-
-
-        # Cache for loaded negative samples
         self.hard_negatives = torch.load(hard_negative_path, map_location="cpu") if hard_negative_path else None
-        # self.hard_negatives = (
-        #     self.hard_negatives["src"].to(self.graph.device),
-        #     self.hard_negatives["dst"].to(self.graph.device),
-        # ) if self.hard_negatives else None
-        
         self.uniform_negatives = torch.load(uniform_negative_path, map_location="cpu") if uniform_negative_path else None
-        # self.uniform_negatives = (
-        #     self.uniform_negatives["src"].to(self.graph.device),
-        #     self.uniform_negatives["dst"].to(self.graph.device),
-        # ) if self.uniform_negatives else None
 
     def evaluate_arxiv_embeddings(
         self, node_embeddings: Tensor, split: str = "valid"
