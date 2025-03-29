@@ -24,8 +24,9 @@ class AbstractAnalyzer(ABC):
         self.embeddings_paths = [i.parent / "embeddings.pt" for i in self.config_paths]
         self.results_paths = [i.parent / "results.json" for i in self.config_paths]
 
-        self.df = self._create_results_df()
-        self.post_process()
+        self._df = self._create_results_df()
+        self._df = self.post_process()
+        self._backup_df = self._df.copy()
     
     @property
     def metrics(self):

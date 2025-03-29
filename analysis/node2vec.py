@@ -96,39 +96,65 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         plt.tight_layout()
         return self.save_and_return(fig, "task_comparison")
     
-    def visualize_lp_comparison(self):
-        """Compare standard and hard link prediction performance."""
+    def scatter(self):
+        """Compare performance across metrics and dimensions."""
 
         fig, ax = plt.subplots(figsize=self.figsize)
         
         # Calculate average metrics by dimension
-        dim_metrics = self.df.groupby('dim')[['lp_uniform/auc', 'lp_hard/auc']].mean().reset_index()
+        dim_metrics = self.df.groupby('dim')[self.metrics].mean().reset_index()
         
-        # Create line plot with markers
-        ax.plot(dim_metrics['dim'], dim_metrics['lp_uniform/auc'], 'o-', label='Standard LP', linewidth=2, color='#ff7f0e')
-        ax.plot(dim_metrics['dim'], dim_metrics['lp_hard/auc'], 's-', label='Hard LP', linewidth=2, color='#2ca02c')
+        # Colors and markers for different metric types
+        colors = {'acc': '#1f77b4', 'uniform': '#ff7f0e', 'hard': '#2ca02c'}
+        markers = {'acc': '^', 'uniform': 'o', 'hard': 's'}
+        labels = {'acc': 'Node Classification', 'uniform': 'Standard LP', 'hard': 'Hard LP'}
         
-        # Add value labels
-        for i, row in dim_metrics.iterrows():
-            ax.text(row['dim'], row['lp_uniform/auc'] + 0.01, f'{row["lp_uniform/auc"]:.3f}', 
-                   ha='center', fontsize=9, color='#ff7f0e')
-            ax.text(row['dim'], row['lp_hard/auc'] - 0.02, f'{row["lp_hard/auc"]:.3f}', 
-                   ha='center', fontsize=9, color='#2ca02c')
+        # Create line plot with markers for each metric
+        for metric in self.metrics:
+            if '/' in metric:
+                metric_type = metric.split('/')[0]
+                if metric_type.startswith('lp_'):
+                    metric_type = metric_type.split('_')[1]  # Extract 'uniform' or 'hard'
+            else:
+                metric_type = 'acc'
+                
+            color = colors.get(metric_type, 'gray')
+            marker = markers.get(metric_type, 'x')
+            label = labels.get(metric_type, metric)
+            
+            ax.plot(dim_metrics['dim'], dim_metrics[metric], f'{marker}-', 
+                   label=label, linewidth=2, color=color)
+            
+            # Add value labels
+            for i, row in dim_metrics.iterrows():
+                # Adjust offset based on metric type to avoid overlapping
+                if metric_type == 'acc':
+                    offset = 0.015
+                elif metric_type == 'uniform':
+                    offset = 0.01
+                else:
+                    offset = -0.02
+                    
+                ax.text(row['dim'], row[metric] + offset, f'{row[metric]:.3f}', 
+                       ha='center', fontsize=9, color=color)
         
-        ax.set_xlabel('Embedding Dimension')
-        ax.set_ylabel('AUC Score')
-        ax.set_title('Comparison of Standard vs Hard Link Prediction')
+        # Set x-axis to log2 scale
+        ax.set_xscale('log', base=2)
+        
+        ax.set_xlabel('Embedding Dimension (log₂ scale)')
+        ax.set_ylabel('Performance Score')
+        ax.set_title('Performance Comparison Across Tasks')
         ax.legend()
         ax.grid(True, alpha=0.3)
         
         plt.tight_layout()
-        return self.save_and_return(fig, "lp_comparison")
+        return self.save_and_return(fig, "performance_comparison")
 
     def run(self):
         """Run all available visualizations for Node2Vec analysis."""
         results = {}
         results["performance_by_dimension"] = self.performance_by_dimension()
         results["task_comparison"] = self.visualize_task_comparison()
-        results["lp_comparison"] = self.visualize_lp_comparison()        
+        results["scatter"] = self.scatter()        
         return results
 

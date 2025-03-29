@@ -1,14 +1,8 @@
-%load_ext autoreload
-%matplotlib inline
+%reload_ext autoreload
 %autoreload 2
-
-from pathlib import Path
+%matplotlib inline
+import pandas as pd
 from analysis.crossmodel import CrossModelAnalyzer
-import json
-crossmodel = CrossModelAnalyzer()
-
-crossmodel.df
-
-
-
-# crossmodel.df.iloc[:5].input_features[0]
+from pathlib import Path
+analyzer = CrossModelAnalyzer()
+# analyzer.per_embedding_combo()
