@@ -65,12 +65,6 @@ class CrossModelAnalyzer(AbstractAnalyzer):
 
         return df
         
-    @property
-    def df(self):
-        if self.mask is None:
-            return self._df
-        else:
-            return self._df[self.mask]
 
         
     def per_embedding_combo(self):

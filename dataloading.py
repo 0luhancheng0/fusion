@@ -297,7 +297,12 @@ class OGBNArxivDataset(OGBDataset):
         if load_metadata:
             self._load_category_mappings()
             self._load_paper_metadata()
-
+        self.labels = self.graph.ndata["label"]
+        self.masks={
+            "train": self.graph.ndata["train_mask"].type(torch.bool),
+            "valid": self.graph.ndata["val_mask"].type(torch.bool),
+            "test": self.graph.ndata["test_mask"].type(torch.bool),
+        }
     def _load_category_mappings(self):
         """Load ArXiv category mappings from files"""
         arxiv_dataset_path = self.dataset_root / "ogbn_arxiv"
@@ -315,7 +320,9 @@ class OGBNArxivDataset(OGBDataset):
         self.paper_to_node_mapping = self.node_to_paper_mapping.reset_index().set_index(
             "paper id"
         )
-
+    @property
+    def num_classes(self):
+        return self.labels.unique().shape[0]
     def _load_paper_metadata(self):
         """Load paper title and abstract information"""
         self.paper_metadata = pd.read_csv(

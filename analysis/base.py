@@ -29,6 +29,13 @@ class AbstractAnalyzer(ABC):
         self._backup_df = self._df.copy()
     
     @property
+    def df(self):
+        if self.mask is None:
+            return self._df
+        else:
+            return self._df[self.mask]
+
+    @property
     def metrics(self):
         return ['acc/test', "lp_uniform/auc", "lp_hard/auc"]
 

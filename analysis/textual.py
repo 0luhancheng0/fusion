@@ -15,20 +15,21 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
     
     def post_process(self):
         """Process the DataFrame to extract model names and dimensions."""
-        if not self.df.empty:
+        if not self._df.empty:
             # Model name is directly in the path
-            self.df['model'] = self.df['path'].apply(lambda p: Path(p).name)
+            self._df['model'] = self._df['path'].apply(lambda p: Path(p).name)
             
             # Extract embedding dimension from the path or from the config
-            if 'embedding_dim' in self.df.columns:
+            if 'embedding_dim' in self._df.columns:
                 # Use existing column if available
                 pass
             else:
                 # Try to extract from path or embedding_path
-                if 'embedding_path' in self.df.columns:
-                    self.df['embedding_dim'] = self.df['embedding_path'].apply(
+                if 'embedding_path' in self._df.columns:
+                    self._df['embedding_dim'] = self._df['embedding_path'].apply(
                         lambda p: int(Path(p).stem) if Path(p).stem.isdigit() else None
                     )
+        return self._df
 
     
     def scatter_plot(self):
@@ -36,7 +37,7 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
 
         
         # Prepare data for plotting
-        plot_data = self.df.copy()
+        plot_data = self._df.copy()
         
         # Create figure
         fig, ax = plt.subplots(figsize=(14, 8))
@@ -52,7 +53,7 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
         lp_aucs = [plot_data[plot_data['model'] == model]['lp_uniform/auc'].mean() for model in models]
         
         # Check if hard link prediction data is available
-        has_hard_lp = 'lp_hard/auc' in self.df.columns
+        has_hard_lp = 'lp_hard/auc' in self._df.columns
         if has_hard_lp:
             lp_hard_aucs = [plot_data[plot_data['model'] == model]['lp_hard/auc'].mean() for model in models]
         
@@ -174,7 +175,7 @@ class TextualEmbeddingsAnalyzer(AbstractAnalyzer):
 
         
         # Melt the DataFrame to create a long format for grouped bars
-        plot_data = self.df.copy()
+        plot_data = self._df.copy()
         metrics_data = pd.melt(
             plot_data,
             id_vars=['model', 'embedding_dim'],
