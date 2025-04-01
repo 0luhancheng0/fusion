@@ -52,8 +52,7 @@ class AbstractAnalyzer(ABC):
 
     def post_process(self):
         pass
-
-
+    
     def load_embeddings(self, path_or_index):
         """Load embeddings from a file path or by index in the DataFrame."""
         if isinstance(path_or_index, int):

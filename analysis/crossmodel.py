@@ -120,9 +120,6 @@ class CrossModelAnalyzer(AbstractAnalyzer):
     def visualize_by_embedding_type(self):
         """Compare model performance across different embedding combinations."""
 
-        # Extract model type and embedding info
-
-        # Create a subplot for each metric
         df = self.df
         num_metrics = len(self.metrics)
         fig, axes = plt.subplots(
