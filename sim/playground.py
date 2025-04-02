@@ -7,6 +7,7 @@ from dataloading import OGBNArxivDataset
 import seaborn as sns
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
+import streamlit as st  # Added import for streamlit
 import constants
 from pathlib import Path
 from analysis.textual import TextualEmbeddingsAnalyzer
@@ -443,7 +444,7 @@ rank_shift_fig = visualize_largest_rank_shifts(
     embedding_paths=[em1_path, em2_path],
     force_rebuild=False
 )
-rank_shift_fig.show()
+st.pyplot(rank_shift_fig)  # Display figure using Streamlit
 
 
 

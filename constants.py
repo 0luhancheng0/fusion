@@ -9,6 +9,9 @@ ROOT_DIR = Path("/fred/oz318/luhanc/fusion")
 
 
 SAVED_EMBEDDINGS_DIR = Path("/home/lcheng/oz318/fusion/saved_embeddings/ogbn-arxiv")
+
+
+SAVED_INDEX_DIR = Path("/home/lcheng/oz318/fusion/saved_index/")
 # CONFIG_DIR = ROOT_DIR / "configs"
 # DEFAULT_MAX_EPOCHS = 5
 # DEFAULT_REPEAT = 5

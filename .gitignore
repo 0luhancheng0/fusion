@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 logs/
-saved_embeddings/
+saved_*/
 slurm-*.out
 
 # C extensions
