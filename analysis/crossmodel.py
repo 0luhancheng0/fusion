@@ -65,8 +65,28 @@ class CrossModelAnalyzer(AbstractAnalyzer):
 
         return df
         
+    def per_textual_model_32(self):
 
-        
+
+        results = {}
+        unique_textual_names = [
+            i.name
+            for i in Path("/home/lcheng/oz318/fusion/logs/TextualEmbeddings").iterdir()
+            if i.is_dir()
+        ]
+
+        latent_dim = 32
+        for textual_name in unique_textual_names:
+            self.mask = (
+                (self._df.textual_name == textual_name)
+                | (self._df.prefix == textual_name)
+                | (self._df.model_type.isin(["Node2VecLightning", "ASGC"])) 
+                | (self._df.latent_dim == latent_dim))
+            # analyzer = CrossModelAnalyzer(mask=f)
+            results[f"per_textual_model_32/{textual_name}"] = self.save_and_return(self.visualize_performance_distributions_subplots(), f"per_textual_model_32/{textual_name}")
+        self.mask = None
+        return results
+                
     def per_embedding_combo(self):
         unique_embedding_combos = self._df.embedding_combo.dropna().unique()
         results = {}
@@ -348,10 +368,10 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         """
         # Add model type column if not present
 
-        # Fixed layout: 1 column, 3 rows
+        # Fixed layout: 1 column, 2 rows
         df = self.df
         n_cols = 1
-        n_rows = 3
+        n_rows = 2
 
         # Create figure with appropriate size - wider layout for single column
         fig, axes = plt.subplots(
@@ -374,7 +394,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         ]
 
         # Create a new column for model category
-        df["model_category"] = "Fusion"
+        df.loc[:, "model_category"] = "Fusion"
         df.loc[df["model_type"].isin(textual_models), "model_category"] = (
             "Textual"
         )
@@ -384,7 +404,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
 
         # Sort the dataframe to ensure consistent ordering of categories and models
         category_order = ["Textual", "Relational", "Fusion"]
-        df["category_order"] = df["model_category"].map(
+        df.loc[:, "category_order"] = df["model_category"].map(
             {cat: i for i, cat in enumerate(category_order)}
         )
         df = df.sort_values(["category_order", "model_type"])
@@ -397,12 +417,14 @@ class CrossModelAnalyzer(AbstractAnalyzer):
                 x="model_type",
                 y=metric,
                 data=df,
+                hue="model_type",  # Assign x to hue
                 palette="Set3",
                 inner="box",  # Show box plot inside violin
                 ax=ax,
                 order=sorted(textual_models)
                 + sorted(relational_models)
                 + sorted(fusion_models),
+                legend=False,  # Disable legend
             )
 
             # Add individual data points
@@ -410,6 +432,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
                 x="model_type",
                 y=metric,
                 data=df,
+                hue="model_type",  # Assign x to hue
                 size=4,
                 alpha=0.4,
                 jitter=True,
@@ -417,6 +440,7 @@ class CrossModelAnalyzer(AbstractAnalyzer):
                 order=sorted(textual_models)
                 + sorted(relational_models)
                 + sorted(fusion_models),
+                legend=False,  # Disable legend
             )
 
             # Add visual separation between categories (vertical lines)
@@ -720,8 +744,13 @@ class CrossModelAnalyzer(AbstractAnalyzer):
         # Create subplots for all performance distributions in a single figure
         results["performance_distributions"] = self.visualize_performance_distributions_subplots()
 
+        
         results.update(self.per_textual_model())
         
         results.update(self.per_latent_dim())
+        
+        results.update(self.per_embedding_combo())
+        
+        results.updatE(self.per_textual_model_32())
         
         return results

@@ -42,7 +42,8 @@ class FusionAnalyzer(AbstractAnalyzer):
                 
         
         # Determine which metrics are available
-        metrics = ["acc/test", "lp_uniform/auc", "lp_hard/auc"]
+        # metrics = ["acc/test", "lp_uniform/auc", "lp_hard/auc"]
+        metrics = self.metrics
             
         # Create a subplot for each metric - make individual heatmaps skinnier
         n_metrics = len(metrics)

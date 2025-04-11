@@ -37,7 +37,7 @@ class AbstractAnalyzer(ABC):
 
     @property
     def metrics(self):
-        return ['acc/test', "lp_uniform/auc", "lp_hard/auc"]
+        return ['acc/test', "lp_hard/auc"]
 
     def _create_results_df(self):
         """Create a DataFrame from all results files found in the base path."""

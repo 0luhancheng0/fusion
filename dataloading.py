@@ -303,6 +303,12 @@ class OGBNArxivDataset(OGBDataset):
             "valid": self.graph.ndata["val_mask"].type(torch.bool),
             "test": self.graph.ndata["test_mask"].type(torch.bool),
         }
+    def paper2node(self, paperids: List[int]) -> int:
+        """Convert paper ID to node index"""
+        diff = set(paperids).difference(set(self.paper_to_node_mapping.index))
+        print(f"Total {len(diff)} not found")
+        paperids = paperids.drop(diff)
+        return self.paper_to_node_mapping.loc[paperids].values.flatten()
     def _load_category_mappings(self):
         """Load ArXiv category mappings from files"""
         arxiv_dataset_path = self.dataset_root / "ogbn_arxiv"
