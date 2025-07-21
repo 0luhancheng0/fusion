@@ -17,8 +17,10 @@ SAVED_EMBEDDINGS_DIR = Path("/home/lcheng/oz318/fusion/saved_embeddings/ogbn-arx
 # DEFAULT_REPEAT = 5
 LOG_DIR = Path("/home/lcheng/oz318/fusion/logs")
 
-FIGURE_PATH = LOG_DIR / "figures"
 
+FIGURE_PATH = Path("/home/lcheng/oz318/fusion/figures")
+# FIGURE_PATH = LOG_DIR / "figures"
+DEFAULT_DPI = 600
 
 # NEGATIVE_SAMPLES_DIR = Path("logs/negative_samples")
 HARD_NEGATIVE_SAMPLES = Path("/fred/oz318/luhanc/fusion/logs/arxiv_hard_negatives.pt")

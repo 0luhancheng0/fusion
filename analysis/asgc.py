@@ -9,12 +9,14 @@ import matplotlib.pyplot as plt
 class ASGCAnalyzer(AbstractAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
         super().__init__("/home/lcheng/oz318/fusion/logs/ASGC", dpi, cmap, figsize)
+        self.post_process()
+        self._backup_df = self._df.copy()
 
     def post_process(self):
-        self.df = self.df.drop("prefix", axis=1)
-        self.df['dim'] = self.df['path'].apply(lambda p: int(p.split('/')[-3]))
-        self.df['reg'] = self.df['path'].apply(lambda p: float(p.split('/')[-2]))
-        self.df['k'] = self.df['path'].apply(lambda p: int(p.split('/')[-1]))
+        self._df = self._df.drop("prefix", axis=1)
+        self._df['dim'] = self._df['path'].apply(lambda p: int(p.split('/')[-3]))
+        self._df['reg'] = self._df['path'].apply(lambda p: float(p.split('/')[-2]))
+        self._df['k'] = self._df['path'].apply(lambda p: int(p.split('/')[-1]))
         
 
     def analyze(self):
@@ -22,7 +24,7 @@ class ASGCAnalyzer(AbstractAnalyzer):
 
         # Group by dimension, k, and regularization
         result = (
-            self.df.groupby(["dim", "k", "reg"])
+            self._df.groupby(["dim", "k", "reg"])
             .agg({
                 "acc/valid": ["mean", "std"],  # Use acc/valid if that's your key
                 "acc/test": ["mean", "std"],
@@ -38,7 +40,7 @@ class ASGCAnalyzer(AbstractAnalyzer):
     def heatmap(self):
         """Visualize ASGC results as a heatmap of test accuracy and link prediction vs k and reg for each dimension."""
 
-        dimensions = self.df["dim"].unique()
+        dimensions = self._df["dim"].unique()
         n_dims = len(dimensions)
         n_cols = 3  #
         n_rows = n_dims
@@ -52,7 +54,7 @@ class ASGCAnalyzer(AbstractAnalyzer):
 
         for i, dim in enumerate(sorted(dimensions)):
             # Filter data for this dimension
-            dim_df = self.df[self.df["dim"] == dim]
+            dim_df = self._df[self._df["dim"] == dim]
 
             # Create pivot tables for both metrics
             acc_pivot = (
@@ -101,13 +103,13 @@ class ASGCAnalyzer(AbstractAnalyzer):
 
     def visualize_parameter_impact(self):
 
-        dimensions = sorted(self.df['dim'].unique())
+        dimensions = sorted(self._df['dim'].unique())
         
         # Create a 2x1 subplot for each dimension
         fig, axes = plt.subplots(2, len(dimensions), figsize=(6*len(dimensions), 10), squeeze=False)
         
         for i, dim_value in enumerate(dimensions):
-            dim_df = self.df[self.df['dim'] == dim_value]
+            dim_df = self._df[self._df['dim'] == dim_value]
             
             # Plot 1: Effect of k on test accuracy
             ax1 = axes[0, i]
@@ -140,7 +142,7 @@ class ASGCAnalyzer(AbstractAnalyzer):
             Tensor of coefficients on CPU or None if file doesn't exist
         """
         if isinstance(path_or_index, int):
-            path = Path(self.df.iloc[path_or_index]['path']) / 'coefficients.pt'
+            path = Path(self._df.iloc[path_or_index]['path']) / 'coefficients.pt'
         else:
             path = path_or_index
             
@@ -176,14 +178,14 @@ class ASGCAnalyzer(AbstractAnalyzer):
             dims_to_visualize = [dim]
             return_single = True
         else:
-            dims_to_visualize = sorted(self.df['dim'].unique())
+            dims_to_visualize = sorted(self._df['dim'].unique())
             return_single = False
             
         results = {}
         
         for current_dim in dims_to_visualize:
             # Filter by dimension
-            df_filtered = self.df[self.df['dim'] == current_dim].copy()
+            df_filtered = self._df[self._df['dim'] == current_dim].copy()
             
             if df_filtered.empty:
                 print(f"No data for dimension {current_dim}.")
@@ -308,7 +310,7 @@ class ASGCAnalyzer(AbstractAnalyzer):
         }
         
         # Create figure with 3x3 grid
-        fig, axes = plt.subplots(len(params), len(self.metrics), figsize=(15, 12))
+        fig, axes = plt.subplots(len(params), len(self.metrics), figsize=self.figsize)
         
         # Add figure title
         fig.suptitle('Hyperparameter Sensitivity Analysis', fontsize=16)
@@ -320,7 +322,7 @@ class ASGCAnalyzer(AbstractAnalyzer):
                 ax = axes[i, j]
                 
                 # Calculate statistics
-                param_stats = self.df.groupby(param)[metric].agg(['mean', 'std']).reset_index()
+                param_stats = self._df.groupby(param)[metric].agg(['mean', 'std']).reset_index()
                 param_stats = param_stats.sort_values(param)
                 
                 # Plot
@@ -335,15 +337,15 @@ class ASGCAnalyzer(AbstractAnalyzer):
                 )
                 
                 # Add value labels
-                for x, y, std in zip(param_stats[param], param_stats['mean'], param_stats['std']):
-                    ax.annotate(
-                        f'{y:.3f}±{std:.3f}',
-                        (x, y),
-                        xytext=(0, 10),
-                        textcoords='offset points',
-                        ha='center',
-                        fontsize=8
-                    )
+                # for x, y, std in zip(param_stats[param], param_stats['mean'], param_stats['std']):
+                #     ax.annotate(
+                #         f'{y:.3f}±{std:.3f}',
+                #         (x, y),
+                #         xytext=(0, 10),
+                #         textcoords='offset points',
+                #         ha='center',
+                #         fontsize=8
+                #     )
                 
                 # Set scales based on parameter
                 if param in ['k', 'dim']:

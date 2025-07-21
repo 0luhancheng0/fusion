@@ -8,15 +8,16 @@ class Node2VecAnalyzer(AbstractAnalyzer):
     
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
         super().__init__("/home/lcheng/oz318/fusion/logs/Node2VecLightning", dpi, cmap, figsize)
-    
+        self.post_process()
+        self._backup_df = self._df.copy()
     def post_process(self):
-        if not self.df.empty:
-            self.df['dim'] = self.df['path'].apply(lambda p: int(p.split('/')[-2]))
-            self.df['seed'] = self.df['path'].apply(lambda p: int(p.split('/')[-1]))
+        if not self._df.empty:
+            self._df['dim'] = self._df['path'].apply(lambda p: int(p.split('/')[-2]))
+            self._df['seed'] = self._df['path'].apply(lambda p: int(p.split('/')[-1]))
     
     def analyze(self):
         result = (
-            self.df.groupby(["dim"])
+            self._df.groupby(["dim"])
             .agg({
                 "acc/valid": ["mean", "std", "min", "max"],
                 "acc/test": ["mean", "std", "min", "max"],
@@ -37,20 +38,20 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         fig, axes = plt.subplots(1, 3, figsize=(self.figsize[0]*3, self.figsize[1]), squeeze=False)
         
         # Plot 1: Node classification (test accuracy) by dimension
-        sns.boxplot(x="dim", y="acc/test", data=self.df, ax=axes[0, 0])
+        sns.boxplot(x="dim", y="acc/test", data=self._df, ax=axes[0, 0])
         axes[0, 0].set_title("Node Classification Accuracy by Dimension")
         axes[0, 0].set_xlabel("Embedding Dimension")
         axes[0, 0].set_ylabel("Test Accuracy")
         
         # Plot 2: Standard link prediction by dimension
-        sns.boxplot(x="dim", y="lp_uniform/auc", data=self.df, ax=axes[0, 1])
+        sns.boxplot(x="dim", y="lp_uniform/auc", data=self._df, ax=axes[0, 1])
         axes[0, 1].set_title("Link Prediction AUC by Dimension")
         axes[0, 1].set_xlabel("Embedding Dimension")
         axes[0, 1].set_ylabel("AUC")
 
             
         # Plot 3: Hard link prediction by dimension
-        sns.boxplot(x="dim", y="lp_hard/auc", data=self.df, ax=axes[0, 2])
+        sns.boxplot(x="dim", y="lp_hard/auc", data=self._df, ax=axes[0, 2])
         axes[0, 2].set_title("Hard Link Prediction AUC by Dimension")
         axes[0, 2].set_xlabel("Embedding Dimension")
         axes[0, 2].set_ylabel("AUC")
@@ -67,7 +68,7 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         
 
             
-        dim_metrics = self.df.groupby('dim')[self.metrics].mean().reset_index()
+        dim_metrics = self._df.groupby('dim')[self.metrics].mean().reset_index()
         
         # Plot comparison
         x = np.arange(len(dim_metrics))
@@ -102,7 +103,7 @@ class Node2VecAnalyzer(AbstractAnalyzer):
         fig, ax = plt.subplots(figsize=self.figsize)
         
         # Calculate average metrics by dimension
-        dim_metrics = self.df.groupby('dim')[self.metrics].mean().reset_index()
+        dim_metrics = self._df.groupby('dim')[self.metrics].mean().reset_index()
         
         # Colors and markers for different metric types
         colors = {'acc': '#1f77b4', 'uniform': '#ff7f0e', 'hard': '#2ca02c'}

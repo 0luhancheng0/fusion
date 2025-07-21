@@ -21,7 +21,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         )
 
     def post_process(self):
-        self.df[
+        self._df[
             [
                 "textual_name",
                 "relational_name",
@@ -32,12 +32,12 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
                 "nhead",
                 "output_modality",
             ]
-        ] = self.df.prefix.str.split("[/_]").tolist()
-        self.df = self.df.drop(columns=["prefix"])
+        ] = self._df.prefix.str.split("[/_]").tolist()
+        self._df = self._df.drop(columns=["prefix"])
 
     def analyze(self):
         """Analyze with additional focus on transformer-specific parameters."""
-        if self.df.empty:
+        if self._df.empty:
             print("No data to analyze.")
             return None
         # Basic analysis from parent
@@ -45,7 +45,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
 
         # Additional analysis by transformer parameters
         transformer_analysis = (
-            self.df.groupby(["latent_dim", "num_layers", "nhead", "output_modality"])
+            self._df.groupby(["latent_dim", "num_layers", "nhead", "output_modality"])
             .agg({"acc/test": ["mean", "std", "count"]})
             .reset_index()
         )
@@ -63,28 +63,28 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
 
     def visualize_output_modality(self):
         """Visualize the impact of output modality on model performance across multiple metrics."""
-        if self.df.empty:
+        if self._df.empty:
             print("No data to visualize.")
             return plt.figure()
 
         # Extract parameters if not already done
-        if "output_modality" not in self.df.columns:
+        if "output_modality" not in self._df.columns:
             path_pattern = r"/\d+_\d+/(\d+)_(\d+)/(\w+)"
-            self.df["num_layers"] = (
-                self.df["path"].str.extract(path_pattern).iloc[:, 0].astype(int)
+            self._df["num_layers"] = (
+                self._df["path"].str.extract(path_pattern).iloc[:, 0].astype(int)
             )
-            self.df["nhead"] = (
-                self.df["path"].str.extract(path_pattern).iloc[:, 1].astype(int)
+            self._df["nhead"] = (
+                self._df["path"].str.extract(path_pattern).iloc[:, 1].astype(int)
             )
-            self.df["output_modality"] = (
-                self.df["path"].str.extract(path_pattern).iloc[:, 2]
+            self._df["output_modality"] = (
+                self._df["path"].str.extract(path_pattern).iloc[:, 2]
             )
 
         # Define metrics to visualize
         # metrics = ["acc/test", "lp_uniform/auc", "lp_hard/auc"]
 
         # Get unique output modalities
-        output_modalities = self.df["output_modality"].unique()
+        output_modalities = self._df["output_modality"].unique()
         n_modalities = len(output_modalities)
 
         # Create figure with subplot grid: metrics as rows, modalities as columns
@@ -99,7 +99,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         for i, metric in enumerate(self.metrics):
             # Create a row of plots that share the y-axis
             for j, modality in enumerate(output_modalities):
-                modality_data = self.df[self.df["output_modality"] == modality]
+                modality_data = self._df[self._df["output_modality"] == modality]
 
                 # Skip if metric doesn't exist in dataframe
                 if metric not in modality_data.columns:
@@ -160,7 +160,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
 
         # Use textual_name as a proxy for different tasks
         # Get unique tasks to plot
-        tasks = self.df["textual_name"].unique()
+        tasks = self._df["textual_name"].unique()
 
         # Create a figure with subplots based on number of tasks
         fig, axes = plt.subplots(len(tasks), 1, figsize=(12, 4 * len(tasks)))
@@ -168,7 +168,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
             axes = [axes]  # Convert to list if only one task
 
         for i, task in enumerate(tasks):
-            task_data = self.df[self.df["textual_name"] == task]
+            task_data = self._df[self._df["textual_name"] == task]
 
             # Create boxplot for this task
             sns.boxplot(
@@ -217,7 +217,7 @@ class TransformerFusionAnalyzer(FusionAnalyzer):
         for metric in metrics:
 
             # Get data with non-null values for this metric
-            metric_data = self.df[~self.df[metric].isna()].copy()
+            metric_data = self._df[~self._df[metric].isna()].copy()
 
             # Filter out rows with infinite values in the metric column
             metric_data = metric_data[np.isfinite(metric_data[metric])]

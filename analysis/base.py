@@ -14,6 +14,7 @@ class AbstractAnalyzer(ABC):
         self.base_path = base_path
         self.dpi = dpi
         self.figsize = figsize
+        self.mask = None
         
         if isinstance(cmap, str):
             self.cmap = sns.color_palette(cmap, as_cmap=True)
@@ -25,8 +26,16 @@ class AbstractAnalyzer(ABC):
         self.results_paths = [i.parent / "results.json" for i in self.config_paths]
 
         self._df = self._create_results_df()
-        self._df = self.post_process()
-        self._backup_df = self._df.copy()
+        # self._df = self.post_process()
+        # self._backup_df = self._df.copy()
+
+    # @setattr
+    # def df(self):
+        # """Return the DataFrame with the mask applied."""
+        # if self.mask is None:
+        #     return self._df
+        # else:
+        #     return self._df[self.mask]
     
     @property
     def df(self):

@@ -11,9 +11,10 @@ class FusionAnalyzer(AbstractAnalyzer):
         self.experiment_type = experiment_type
         base_path = f"/home/lcheng/oz318/fusion/logs/{experiment_type}"
         super().__init__(base_path, dpi, cmap, figsize)
+        self.post_process()
 
     def post_process(self):
-        self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim"]] = self.df.prefix.str.split(
+        self._df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim"]] = self._df.prefix.str.split(
             "[/_]"
         ).tolist()
         
@@ -35,7 +36,7 @@ class FusionAnalyzer(AbstractAnalyzer):
 
             
         # Filter data if filter parameters are provided
-        plot_df = self.df.copy()
+        plot_df = self._df.copy()
         if filter_params:
             for param, value in filter_params.items():
                 plot_df = plot_df[plot_df[param] == value]
@@ -112,33 +113,33 @@ class FusionAnalyzer(AbstractAnalyzer):
         fig, axes = plt.subplots(2, 2, figsize=(15, 12), squeeze=False)
         
         # Plot 1: Impact of latent dimension on test accuracy
-        if 'latent_dim' in self.df.columns:
+        if 'latent_dim' in self._df.columns:
             ax1 = axes[0, 0]
-            sns.boxplot(x='latent_dim', y='acc/test', data=self.df, ax=ax1)
+            sns.boxplot(x='latent_dim', y='acc/test', data=self._df, ax=ax1)
             ax1.set_title(f'{self.experiment_type}: Test Accuracy by Latent Dimension')
             ax1.set_xlabel('Latent Dimension')
             ax1.set_ylabel('Test Accuracy')
             
         # Plot 2: Impact of textual dimension on test accuracy
-        if 'textual_dim' in self.df.columns:
+        if 'textual_dim' in self._df.columns:
             ax2 = axes[0, 1]
-            sns.boxplot(x='textual_dim', y='acc/test', data=self.df, ax=ax2)
+            sns.boxplot(x='textual_dim', y='acc/test', data=self._df, ax=ax2)
             ax2.set_title(f'{self.experiment_type}: Test Accuracy by Textual Dimension')
             ax2.set_xlabel('Textual Dimension')
             ax2.set_ylabel('Test Accuracy')
             
         # Plot 3: Impact of relational dimension on test accuracy
-        if 'relational_dim' in self.df.columns:
+        if 'relational_dim' in self._df.columns:
             ax3 = axes[1, 0]
-            sns.boxplot(x='relational_dim', y='acc/test', data=self.df, ax=ax3)
+            sns.boxplot(x='relational_dim', y='acc/test', data=self._df, ax=ax3)
             ax3.set_title(f'{self.experiment_type}: Test Accuracy by Relational Dimension')
             ax3.set_xlabel('Relational Dimension')
             ax3.set_ylabel('Test Accuracy')
             
         # Plot 4: Interaction between textual and relational dimensions
-        if 'textual_dim' in self.df.columns and 'relational_dim' in self.df.columns:
+        if 'textual_dim' in self._df.columns and 'relational_dim' in self._df.columns:
             ax4 = axes[1, 1]
-            dim_metrics = self.df.groupby(['textual_dim', 'relational_dim'])['acc/test'].mean().reset_index()
+            dim_metrics = self._df.groupby(['textual_dim', 'relational_dim'])['acc/test'].mean().reset_index()
             pivot_data = dim_metrics.pivot(index='relational_dim', columns='textual_dim', values='acc/test')
             sns.heatmap(pivot_data, annot=True, fmt=".3f", cmap=self.cmap, ax=ax4)
             ax4.set_title(f'{self.experiment_type}: Accuracy by Dimension Interaction')

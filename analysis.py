@@ -17,6 +17,7 @@ from analysis.fusion.gated import GatedFusionAnalyzer
 from analysis.fusion.lowrank import LowRankFusionAnalyzer
 from analysis.fusion.transformer import TransformerFusionAnalyzer
 
+from constants import DEFAULT_DPI
 # Create the main app
 app = typer.Typer(help="Command line interface for fusion analysis tools")
 
@@ -53,7 +54,7 @@ def parse_figsize(value: Union[Tuple[float, float], str]) -> Tuple[float, float]
 def common_analyzer_options(f: Callable) -> Callable:
     """Decorator to add common analyzer options to a command."""
     common_options = [
-        typer.Option(300, help="DPI for saved figures"),
+        typer.Option(DEFAULT_DPI, help="DPI for saved figures"),
         typer.Option(ColorMap.VIRIDIS, help="Colormap to use for plots"),
         typer.Option("12,8", help="Figure size as width,height", callback=parse_figsize)
     ]
@@ -70,7 +71,7 @@ def run_analyzer(analyzer_class: Type, **kwargs) -> Any:
 
 @app.command()
 def asgc(
-    dpi: int = typer.Option(300, help="DPI for saved figures"),
+    dpi: int = typer.Option(DEFAULT_DPI, help="DPI for saved figures"),
     cmap: ColorMap = typer.Option(ColorMap.VIRIDIS, help="Colormap to use for plots"),
     figsize: str = typer.Option("12,8", help="Figure size as width,height", callback=parse_figsize),
 ):
@@ -85,7 +86,7 @@ def asgc(
 
 @app.command()
 def crossmodel(
-    dpi: int = typer.Option(300, help="DPI for saved figures"),
+    dpi: int = typer.Option(DEFAULT_DPI, help="DPI for saved figures"),
     cmap: ColorMap = typer.Option(ColorMap.VIRIDIS, help="Colormap to use for plots"),
     figsize: str = typer.Option("12,8", help="Figure size as width,height", callback=parse_figsize),
 ):
@@ -100,7 +101,7 @@ def crossmodel(
 
 @app.command()
 def node2vec(
-    dpi: int = typer.Option(300, help="DPI for saved figures"),
+    dpi: int = typer.Option(DEFAULT_DPI, help="DPI for saved figures"),
     cmap: ColorMap = typer.Option(ColorMap.VIRIDIS, help="Colormap to use for plots"),
     figsize: str = typer.Option("12,8", help="Figure size as width,height", callback=parse_figsize),
 ):
@@ -115,7 +116,7 @@ def node2vec(
 
 @app.command()
 def textual(
-    dpi: int = typer.Option(300, help="DPI for saved figures"),
+    dpi: int = typer.Option(DEFAULT_DPI, help="DPI for saved figures"),
     cmap: ColorMap = typer.Option(ColorMap.VIRIDIS, help="Colormap to use for plots"),
     figsize: str = typer.Option("12,8", help="Figure size as width,height", callback=parse_figsize),
 ):
@@ -131,7 +132,7 @@ def textual(
 @app.command()
 def fusion(
     fusion_type: str = typer.Argument(..., help="Fusion type (addition, early, gated, lowrank, transformer)"),
-    dpi: int = typer.Option(300, help="DPI for saved figures"),
+    dpi: int = typer.Option(DEFAULT_DPI, help="DPI for saved figures"),
     cmap: ColorMap = typer.Option(ColorMap.VIRIDIS, help="Colormap to use for plots"),
     figsize: str = typer.Option("12,8", help="Figure size as width,height", callback=parse_figsize),
 ):
@@ -159,7 +160,7 @@ def fusion(
     )
 @app.command()
 def all(
-    dpi: int = typer.Option(300, help="DPI for saved figures"),
+    dpi: int = typer.Option(DEFAULT_DPI, help="DPI for saved figures"),
     cmap: ColorMap = typer.Option(ColorMap.VIRIDIS, help="Colormap to use for plots"),
     figsize: str = typer.Option("12,8", help="Figure size as width,height", callback=parse_figsize),
 ):

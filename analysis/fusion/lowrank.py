@@ -5,13 +5,13 @@ class LowRankFusionAnalyzer(FusionAnalyzer):
     def __init__(self, dpi=300, cmap="viridis", figsize=(6.4, 4.8)):
         super().__init__("LowRankFusion", dpi, cmap, figsize)
     def post_process(self):
-        self.df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim", "rank"]] = self.df.prefix.str.split(
+        self._df[["textual_name", "relational_name", "textual_dim", "relational_dim", "latent_dim", "rank"]] = self._df.prefix.str.split(
             "[/_]"
         ).tolist()
-        self.df = self.df.drop(columns=["prefix"])
+        self._df = self._df.drop(columns=["prefix"])
     def analyze(self):
         """Analyze with additional focus on rank parameter."""
-        if self.df.empty:
+        if self._df.empty:
             print("No data to analyze.")
             return None
 
@@ -21,7 +21,7 @@ class LowRankFusionAnalyzer(FusionAnalyzer):
 
         # Additional analysis by rank
         rank_analysis = (
-            self.df.groupby(["latent_dim", "rank"])
+            self._df.groupby(["latent_dim", "rank"])
             .agg({"acc/test": ["mean", "std", "count"]})
             .reset_index()
         )
